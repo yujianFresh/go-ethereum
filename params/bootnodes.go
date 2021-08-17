@@ -16,17 +16,7 @@
 
 package params
 
-import (
-	"github.com/ethereum/go-ethereum/common"
-	"math/big"
-)
-
-// block reward
-var (
-	AnnulProfit = 1.15
-	AnnulBlockAmount = big.NewInt(3153600)
-)
-
+import "github.com/ethereum/go-ethereum/common"
 
 // MainnetBootnodes are the enode URLs of the P2P bootstrap nodes running on
 // the main Ethereum network.

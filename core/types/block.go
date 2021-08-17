@@ -83,10 +83,6 @@ type Header struct {
 	Extra       []byte         `json:"extraData"        gencodec:"required"`
 	MixDigest   common.Hash    `json:"mixHash"`
 	Nonce       BlockNonce     `json:"nonce"`
-	AgentName          []byte      `json:"agentName"        gencodec:"required"`
-	DelegateRoot       common.Hash `json:"delegateRoot"     gencodec:"required"`
-	ShuffleHash        common.Hash `json:"shuffleHash"      gencodec:"required"`
-	ShuffleBlockNumber *big.Int    `json:"shuffleBlockNumber"        gencodec:"required"`
 }
 
 // field type overrides for gencodec
@@ -165,8 +161,6 @@ type Block struct {
 	// inter-peer block relay.
 	ReceivedAt   time.Time
 	ReceivedFrom interface{}
-	Signature      []byte `json:"signature"        gencodec:"required"`
-	RlpEncodeSigns []byte
 }
 
 // DeprecatedTd is an old relic for extracting the TD of a block. It is in the
