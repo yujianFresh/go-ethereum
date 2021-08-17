@@ -68,6 +68,7 @@ var (
 		IstanbulBlock:       big.NewInt(9069000),
 		MuirGlacierBlock:    big.NewInt(9200000),
 		Ethash:              new(EthashConfig),
+		BlockInterval:        big.NewInt(10),
 	}
 
 	// MainnetTrustedCheckpoint contains the light client trusted checkpoint for the main network.
@@ -107,6 +108,7 @@ var (
 		IstanbulBlock:       big.NewInt(6485846),
 		MuirGlacierBlock:    big.NewInt(7117117),
 		Ethash:              new(EthashConfig),
+		BlockInterval:        big.NewInt(10),
 	}
 
 	// RopstenTrustedCheckpoint contains the light client trusted checkpoint for the Ropsten test network.
@@ -144,6 +146,7 @@ var (
 		ConstantinopleBlock: big.NewInt(3660663),
 		PetersburgBlock:     big.NewInt(4321234),
 		IstanbulBlock:       big.NewInt(5435345),
+		BlockInterval:        big.NewInt(10),
 		Clique: &CliqueConfig{
 			Period: 15,
 			Epoch:  30000,
@@ -183,6 +186,7 @@ var (
 		ConstantinopleBlock: big.NewInt(0),
 		PetersburgBlock:     big.NewInt(0),
 		IstanbulBlock:       big.NewInt(1561651),
+		BlockInterval:        big.NewInt(10),
 		Clique: &CliqueConfig{
 			Period: 15,
 			Epoch:  30000,
@@ -300,6 +304,8 @@ type ChainConfig struct {
 	// Various consensus engines
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
+	// produce block time (s)
+	BlockInterval        *big.Int
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
