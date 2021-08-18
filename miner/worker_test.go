@@ -98,6 +98,9 @@ type testWorkerBackend struct {
 	uncleBlock *types.Block
 }
 
+func (b *testWorkerBackend) AccountManager() *accounts.Manager  { return b.AccountManager()}
+
+
 func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db ethdb.Database, n int) *testWorkerBackend {
 	var gspec = core.Genesis{
 		Config: chainConfig,

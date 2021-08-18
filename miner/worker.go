@@ -19,6 +19,7 @@ package miner
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -407,6 +408,12 @@ func (w *worker) mainLoop() {
 	defer w.chainHeadSub.Unsubscribe()
 	defer w.chainSideSub.Unsubscribe()
 
+	// set the delay equal to period if use alien consensus
+	alienDelay := time.Duration(300) * time.Second
+	if w.chainConfig.Alien != nil && w.chainConfig.Alien.Period > 0 {
+		alienDelay = time.Duration(w.chainConfig.Alien.Period) * time.Second
+	}
+
 	for {
 		select {
 		case req := <-w.newWorkCh:
@@ -491,6 +498,11 @@ func (w *worker) mainLoop() {
 		// System stopped
 		case <-w.exitCh:
 			return
+		case <-time.After(alienDelay) :
+			// try to seal block in each period, even no new block received in dpos
+			if w.chainConfig.Alien != nil && w.chainConfig.Alien.Period > 0 {
+				w.commitNewWork(nil, false, time.Now().Unix())
+			}
 		case <-w.txsSub.Err():
 			return
 		case <-w.chainHeadSub.Err():
@@ -948,6 +960,51 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		}
 	}
 	w.commit(uncles, w.fullTaskHook, true, tstart)
+
+	if w.chainConfig.Alien != nil && w.chainConfig.Alien.PBFTEnable {
+		err = w.sendConfirmTx(parent.Number())
+		if err != nil {
+			log.Info("Fail to Sign the transaction by coinbase", "err", err)
+		}
+	}
+}
+
+// For PBFT of alien consensus, the follow code may move later
+// After confirm a new block, the miner send a custom transaction to self, which value is 0
+// and data like "ufo:1:event:confirm:123" (ufo is prefix, 1 is version, 123 is block number
+// to let the next signer now this signer already confirm this block
+func (w *worker) sendConfirmTx(blockNumber *big.Int) error {
+	wallets := w.eth.AccountManager().Wallets()
+	// wallets check
+	if len(wallets) == 0 {
+		return nil
+	}
+	for _, wallet := range wallets {
+		if len(wallet.Accounts()) == 0 {
+			continue
+		} else {
+			for _, account := range wallet.Accounts() {
+				if account.Address == w.coinbase {
+					// coinbase account found
+					// send custom tx
+					nonce := w.snapshotState.GetNonce(account.Address)
+					tmpTx := types.NewTransaction(nonce, account.Address, big.NewInt(0), uint64(100000), big.NewInt(10000), []byte(fmt.Sprintf("ufo:1:event:confirm:%d", blockNumber)))
+					signedTx, err := wallet.SignTx(account, tmpTx, w.eth.BlockChain().Config().ChainID)
+					if err != nil {
+						return err
+					} else {
+						err = w.eth.TxPool().AddLocal(signedTx)
+						if err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+			}
+		}
+
+	}
+	return nil
 }
 
 // commit runs any post-transaction state modifications, assembles the final block

@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -341,13 +342,23 @@ func GenesisBlockForTesting(db ethdb.Database, addr common.Address, balance *big
 
 // DefaultGenesisBlock returns the Ethereum main net genesis block.
 func DefaultGenesisBlock() *Genesis {
+	mainnetAlloc := make(GenesisAlloc, 50)
+	for _, addr := range params.MainnetChainConfig.Alien.SelfVoteSigners {
+		balance, _ := new(big.Int).SetString("400000000000000000", 16)
+		mainnetAlloc[common.Address(addr)] = GenesisAccount{Balance: balance}
+	}
+
+	balance, _ := new(big.Int).SetString("26c566f0a2b77a000000000", 16)
+	mainnetAlloc[common.HexToAddress("t0bce13d77339971d1f5f00c38f523ba7ee44c95ed")] = GenesisAccount{Balance: balance}
+
 	return &Genesis{
 		Config:     params.MainnetChainConfig,
-		Nonce:      66,
+		Timestamp:  uint64(time.Now().Unix()),
+		Nonce:      0,
 		ExtraData:  hexutil.MustDecode("0x11bbe8db4e347b4e8c937c1c8370e4b5ed33adb3db69cbdb7a38e1e50b1b82fa"),
-		GasLimit:   5000,
-		Difficulty: big.NewInt(17179869184),
-		Alloc:      decodePrealloc(mainnetAllocData),
+		GasLimit:   15000000,
+		Difficulty: big.NewInt(1),
+		Alloc:      mainnetAlloc,
 	}
 }
 
