@@ -340,6 +340,7 @@ type AlienConfig struct {
 	Epoch            uint64                     `json:"epoch"`            // Epoch length to reset votes and checkpoint
 	MaxSignerCount   uint64                     `json:"maxSignersCount"`  // Max count of signers
 	MinVoterBalance  *big.Int                   `json:"minVoterBalance"`  // Min voter balance to valid this vote
+	BlockReward      *big.Int                   `json:"blockReward"` // produce block reward
 	GenesisTimestamp uint64                     `json:"genesisTimestamp"` // The LoopStartTime of first Block
 	SelfVoteSigners  []common.UnprefixedAddress `json:"signers"`          // Signers vote by themselves to seal the block, make sure the signer accounts are pre-funded
 	SideChain        bool                       `json:"sideChain"`        // If side chain or not

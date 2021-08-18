@@ -45,13 +45,13 @@ func (w *wizard) makeGenesis() {
 		Alloc:      make(core.GenesisAlloc),
 		Config: &params.ChainConfig{
 			HomesteadBlock:      big.NewInt(0),
-			EIP150Block:         big.NewInt(0),
-			EIP155Block:         big.NewInt(0),
-			EIP158Block:         big.NewInt(0),
-			ByzantiumBlock:      big.NewInt(0),
-			ConstantinopleBlock: big.NewInt(0),
-			PetersburgBlock:     big.NewInt(0),
-			IstanbulBlock:       big.NewInt(0),
+			EIP150Block:         big.NewInt(1),
+			EIP155Block:         big.NewInt(2),
+			EIP158Block:         big.NewInt(3),
+			ByzantiumBlock:      big.NewInt(4),
+			ConstantinopleBlock: big.NewInt(5),
+			PetersburgBlock:     big.NewInt(6),
+			IstanbulBlock:       big.NewInt(7),
 		},
 	}
 	// Figure out which consensus engine to choose
@@ -59,6 +59,7 @@ func (w *wizard) makeGenesis() {
 	fmt.Println("Which consensus engine to use? (default = clique)")
 	fmt.Println(" 1. Ethash - proof-of-work")
 	fmt.Println(" 2. Clique - proof-of-authority")
+	fmt.Println(" 3. Alien  - delegated-proof-of-stake")
 
 	choice := w.read()
 	switch {
@@ -104,7 +105,61 @@ func (w *wizard) makeGenesis() {
 		for i, signer := range signers {
 			copy(genesis.ExtraData[32+i*common.AddressLength:], signer[:])
 		}
+	case choice == "" || choice == "3":
+		// In the case of alien, configure the consensus parameters
+		genesis.Difficulty = big.NewInt(1)
+		genesis.Config.Alien = &params.AlienConfig{
+			Period:           3,
+			Epoch:            201600,
+			MaxSignerCount:   21,
+			MinVoterBalance:  new(big.Int).Mul(big.NewInt(1000), big.NewInt(1e+18)),
+			GenesisTimestamp: uint64(time.Now().Unix()) + (60 * 5), // Add five minutes
+			SelfVoteSigners:  []common.UnprefixedAddress{},
+		}
+		fmt.Println()
+		fmt.Println("How many seconds should blocks take? (default = 3)")
+		genesis.Config.Alien.Period = uint64(w.readDefaultInt(3))
 
+		fmt.Println()
+		fmt.Println("How many blocks create for one epoch? (default = 201600)")
+		genesis.Config.Alien.Epoch = uint64(w.readDefaultInt(201600))
+
+		fmt.Println()
+		fmt.Println("What is the max number of signers? (default = 21)")
+		genesis.Config.Alien.MaxSignerCount = uint64(w.readDefaultInt(21))
+
+		fmt.Println()
+		fmt.Println("What is the minimize balance for valid voter ? (default = 1000 ETH)")
+		genesis.Config.Alien.MinVoterBalance = new(big.Int).Mul(big.NewInt(int64(w.readDefaultInt(1000))),
+			big.NewInt(1e+18))
+
+		fmt.Println()
+		fmt.Println("How many block reward one block generate ? (default = 10 ETH)")
+		genesis.Config.Alien.BlockReward = new(big.Int).Mul(big.NewInt(int64(w.readDefaultInt(10))),
+			big.NewInt(1e+18))
+
+		fmt.Println()
+		fmt.Println("How many minutes delay to create first block ? (default = 5 minutes)")
+		genesis.Config.Alien.GenesisTimestamp = uint64(time.Now().Unix()) + uint64(w.readDefaultInt(5)*60)
+
+		// We also need the initial list of signers
+		fmt.Println()
+		fmt.Println("Which accounts are vote by themselves to seal the block?(least one, those accounts will be auto pre-funded)")
+		for {
+			if address := w.readAddress(); address != nil {
+
+				genesis.Config.Alien.SelfVoteSigners = append(genesis.Config.Alien.SelfVoteSigners, common.UnprefixedAddress(*address))
+				genesis.Alloc[*address] = core.GenesisAccount{
+					Balance: new(big.Int).Lsh(big.NewInt(1), 256-7), // 2^256 / 128 (allow many pre-funds without balance overflows)
+				}
+				continue
+			}
+			if len(genesis.Config.Alien.SelfVoteSigners) > 0 {
+				break
+			}
+		}
+
+		genesis.ExtraData = make([]byte, 32+65)
 	default:
 		log.Crit("Invalid consensus engine choice", "choice", choice)
 	}

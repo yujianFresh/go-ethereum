@@ -1128,6 +1128,15 @@ func sideChainRewards(config *params.ChainConfig, state *state.StateDB, header *
 	}
 }
 
+// change block reward by replace this method
+func accumulateRewards2(config *params.AlienConfig, state *state.StateDB, header *types.Header, snap *Snapshot, refundGas RefundGas) error {
+	blockReward := config.BlockReward
+	// Accumulate the rewards for the miner and any included uncles
+	reward := new(big.Int).Set(blockReward)
+	state.AddBalance(header.Coinbase, reward)
+	return nil
+}
+
 // AccumulateRewards credits the coinbase of the given block with the mining reward.
 func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header, snap *Snapshot, refundGas RefundGas) error {
 	// Calculate the block reword by year
