@@ -490,7 +490,7 @@ func (w *worker) mainLoop() {
 				// If clique is running in dev mode(period is 0), disable
 				// advance sealing here.
 				if w.chainConfig.Clique != nil && w.chainConfig.Clique.Period == 0 {
-					w.commitNewWork(nil, true, time.Now().Unix())
+					w.commitNewWork(nil, false, time.Now().Unix())
 				}
 			}
 			atomic.AddInt32(&w.newTxs, int32(len(ev.Txs)))
