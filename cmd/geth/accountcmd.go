@@ -205,7 +205,7 @@ func accountList(ctx *cli.Context) error {
 }
 
 // tries unlocking the specified account a few times.
-func unlockAccount(ks *keystore.KeyStore, address string, i int, passwords []string) (accounts.Account, string) {
+func unlockAccount(ctx *cli.Context, ks *keystore.KeyStore, address string, i int, passwords []string) (accounts.Account, string) {
 	account, err := utils.MakeAddress(ks, address)
 	if err != nil {
 		utils.Fatalf("Could not list accounts: %v", err)
@@ -232,6 +232,35 @@ func unlockAccount(ks *keystore.KeyStore, address string, i int, passwords []str
 
 	return accounts.Account{}, ""
 }
+
+//// tries unlocking the specified account a few times.
+//func unlockAccount(ks *keystore.KeyStore, address string, i int, passwords []string) (accounts.Account, string) {
+//	account, err := utils.MakeAddress(ks, address)
+//	if err != nil {
+//		utils.Fatalf("Could not list accounts: %v", err)
+//	}
+//	for trials := 0; trials < 3; trials++ {
+//		prompt := fmt.Sprintf("Unlocking account %s | Attempt %d/%d", address, trials+1, 3)
+//		password := getPassPhrase(prompt, false, i, passwords)
+//		err = ks.Unlock(account, password)
+//		if err == nil {
+//			log.Info("Unlocked account", "address", account.Address.Hex())
+//			return account, password
+//		}
+//		if err, ok := err.(*keystore.AmbiguousAddrError); ok {
+//			log.Info("Unlocked account", "address", account.Address.Hex())
+//			return ambiguousAddrRecovery(ks, err, password), password
+//		}
+//		if err != keystore.ErrDecrypt {
+//			// No need to prompt again if the error is not decryption-related.
+//			break
+//		}
+//	}
+//	// All trials expended to unlock account, bail out
+//	utils.Fatalf("Failed to unlock account %s (%v)", address, err)
+//
+//	return accounts.Account{}, ""
+//}
 
 // getPassPhrase retrieves the password associated with an account, either fetched
 // from a list of preloaded passphrases, or requested interactively from the user.
@@ -332,7 +361,7 @@ func accountUpdate(ctx *cli.Context) error {
 	ks := stack.AccountManager().Backends(keystore.KeyStoreType)[0].(*keystore.KeyStore)
 
 	for _, addr := range ctx.Args() {
-		account, oldPassword := unlockAccount(ks, addr, 0, nil)
+		account, oldPassword := unlockAccount(ctx, ks, addr, 0, nil)
 		newPassword := getPassPhrase("Please give a new password. Do not forget this password.", true, 0, nil)
 		if err := ks.Update(account, oldPassword, newPassword); err != nil {
 			utils.Fatalf("Could not update the account: %v", err)

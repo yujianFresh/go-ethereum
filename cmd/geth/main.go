@@ -347,7 +347,17 @@ func startNode(ctx *cli.Context, stack *node.Node) {
 	utils.StartNode(stack)
 
 	// Unlock any account specifically requested
-	unlockAccounts(ctx, stack)
+	// unlockAccounts(ctx, stack)
+	// Unlock any account specifically requested
+	ks := stack.AccountManager().Backends(keystore.KeyStoreType)[0].(*keystore.KeyStore)
+
+	passwords := utils.MakePasswordList(ctx)
+	unlocks := strings.Split(ctx.GlobalString(utils.UnlockedAccountFlag.Name), ",")
+	for i, account := range unlocks {
+		if trimmed := strings.TrimSpace(account); trimmed != "" {
+			unlockAccount(ctx, ks, trimmed, i, passwords)
+		}
+	}
 
 	// Register wallet event handlers to open and auto-derive wallets
 	events := make(chan accounts.WalletEvent, 16)
@@ -484,6 +494,6 @@ func unlockAccounts(ctx *cli.Context, stack *node.Node) {
 	ks := stack.AccountManager().Backends(keystore.KeyStoreType)[0].(*keystore.KeyStore)
 	passwords := utils.MakePasswordList(ctx)
 	for i, account := range unlocks {
-		unlockAccount(ks, account, i, passwords)
+		unlockAccount(ctx, ks, account, i, passwords)
 	}
 }
