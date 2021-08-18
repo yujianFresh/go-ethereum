@@ -890,7 +890,7 @@ func TestVoting(t *testing.T) {
 		genesis.Commit(db)
 
 		// Create new alien
-		alien := New(&params.AlienConfig{
+		alien := New(nil,&params.AlienConfig{
 			Period:          tt.period,
 			Epoch:           tt.epoch,
 			MinVoterBalance: big.NewInt(int64(tt.minVoterBalance)),

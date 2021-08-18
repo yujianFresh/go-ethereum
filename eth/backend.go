@@ -20,6 +20,7 @@ package eth
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/consensus/alien"
 	"math/big"
 	"runtime"
 	"sync"
@@ -252,6 +253,8 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 	// If proof-of-authority is requested, set it up
 	if chainConfig.Clique != nil {
 		return clique.New(chainConfig.Clique, db)
+	} else if chainConfig.Alien != nil {
+		return alien.New(chainConfig,chainConfig.Alien,db)
 	}
 	// Otherwise assume proof-of-work
 	switch config.PowMode {
