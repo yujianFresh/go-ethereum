@@ -421,7 +421,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		if err != nil {
 			return nil, err
 		}
-		snap.HeaderTime = header.Time.Uint64()
+		snap.HeaderTime = header.Time
 		snap.LoopStartTime = headerExtra.LoopStartTime
 		snap.Signers = nil
 		for i := range headerExtra.SignerQueue {

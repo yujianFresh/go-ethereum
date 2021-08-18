@@ -75,7 +75,9 @@ func (api *API) GetSnapshotByHeaderTime(targetTime uint64, scHash common.Hash) (
 	header := api.chain.CurrentHeader()
 	period := new(big.Int).SetUint64(api.chain.Config().Alien.Period)
 	target := new(big.Int).SetUint64(targetTime)
-	if ceil := new(big.Int).Add(header.Time, period); header == nil || target.Cmp(ceil) > 0 {
+
+	headerTime := big.NewInt(int64(header.Time))
+	if ceil := new(big.Int).Add(headerTime, period); header == nil || target.Cmp(ceil) > 0 {
 		return nil, errUnknownBlock
 	}
 
@@ -84,7 +86,7 @@ func (api *API) GetSnapshotByHeaderTime(targetTime uint64, scHash common.Hash) (
 	nextN := new(big.Int).SetInt64(0)
 	isNext := false
 	for {
-		if ceil := new(big.Int).Add(header.Time, period); target.Cmp(header.Time) >= 0 && target.Cmp(ceil) < 0 {
+		if ceil := new(big.Int).Add(headerTime, period); target.Cmp(headerTime) >= 0 && target.Cmp(ceil) < 0 {
 			snap, err := api.alien.snapshot(api.chain, header.Number.Uint64(), header.Hash(), nil, nil, defaultLoopCntRecalculateSigners)
 
 			// replace coinbase by signer settings
@@ -113,13 +115,13 @@ func (api *API) GetSnapshotByHeaderTime(targetTime uint64, scHash common.Hash) (
 					var maxHeaderTime, minHeaderTime *big.Int
 					maxH := api.chain.GetHeaderByNumber(maxN.Uint64())
 					if maxH != nil {
-						maxHeaderTime = new(big.Int).Set(maxH.Time)
+						maxHeaderTime = new(big.Int).SetUint64(maxH.Time)
 					} else {
 						break
 					}
 					minH := api.chain.GetHeaderByNumber(minN.Uint64())
 					if minH != nil {
-						minHeaderTime = new(big.Int).Set(minH.Time)
+						minHeaderTime = new(big.Int).SetUint64(minH.Time)
 					} else {
 						break
 					}
@@ -130,7 +132,7 @@ func (api *API) GetSnapshotByHeaderTime(targetTime uint64, scHash common.Hash) (
 				}
 			}
 			// calculate next number
-			nextN.Sub(target, header.Time)
+			nextN.Sub(target, headerTime)
 			nextN.Div(nextN, period)
 			nextN.Add(nextN, header.Number)
 
@@ -145,11 +147,11 @@ func (api *API) GetSnapshotByHeaderTime(targetTime uint64, scHash common.Hash) (
 				break
 			}
 			// update maxN & minN
-			if header.Time.Cmp(target) >= 0 {
+			if headerTime.Cmp(target) >= 0 {
 				if header.Number.Cmp(maxN) < 0 {
 					maxN.Set(header.Number)
 				}
-			} else if header.Time.Cmp(target) <= 0 {
+			} else if headerTime.Cmp(target) <= 0 {
 				if header.Number.Cmp(minN) > 0 {
 					minN.Set(header.Number)
 				}

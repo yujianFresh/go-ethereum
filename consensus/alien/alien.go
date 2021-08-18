@@ -295,7 +295,7 @@ func (a *Alien) verifyHeader(chain consensus.ChainReader, header *types.Header, 
 	}
 
 	// Don't waste time checking blocks from the future
-	if header.Time.Cmp(big.NewInt(time.Now().Unix())) > 0 {
+	if header.Time > uint64(time.Now().Unix()) {
 		return consensus.ErrFutureBlock
 	}
 
@@ -340,7 +340,7 @@ func (a *Alien) verifyCascadingFields(chain consensus.ChainReader, header *types
 	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
 		return consensus.ErrUnknownAncestor
 	}
-	if parent.Time.Uint64() > header.Time.Uint64() {
+	if parent.Time > header.Time {
 		return ErrInvalidTimestamp
 	}
 	// Retrieve the snapshot needed to verify this header and cache it
@@ -512,10 +512,9 @@ func (a *Alien) verifySeal(chain consensus.ChainReader, header *types.Header, pa
 						return errInvalidSignerQueue
 					}
 				}
-				if signer == parent.Coinbase && header.Time.Uint64()-parent.Time.Uint64() < chain.Config().Alien.Period {
+				if signer == parent.Coinbase && ((header.Time - parent.Time) < chain.Config().Alien.Period) {
 					return errInvalidNeighborSigner
 				}
-
 			}
 
 			// verify missing signer for punish
@@ -557,11 +556,11 @@ func (a *Alien) verifySeal(chain consensus.ChainReader, header *types.Header, pa
 			}
 		}
 
-		if !snap.inturn(signer, header.Time.Uint64()) {
+		if !snap.inturn(signer, header.Time) {
 			return errUnauthorized
 		}
 	} else {
-		if notice, loopStartTime, period, signerLength, _, err := a.mcSnapshot(chain, signer, header.Time.Uint64()); err != nil {
+		if notice, loopStartTime, period, signerLength, _, err := a.mcSnapshot(chain, signer, header.Time); err != nil {
 			return err
 		} else {
 			mcLoopStartTime = loopStartTime
@@ -607,9 +606,9 @@ func (a *Alien) Prepare(chain consensus.ChainReader, header *types.Header) error
 	if parent == nil {
 		return  consensus.ErrUnknownAncestor
 	}
-	header.Time = new(big.Int).Add(parent.Time, new(big.Int).SetUint64(a.config.Period))
-	if header.Time.Int64() < time.Now().Unix() {
-		header.Time = big.NewInt(time.Now().Unix())
+	header.Time = parent.Time + a.config.Period
+	if int64(header.Time) < time.Now().Unix() {
+		header.Time = uint64(time.Now().Unix())
 	}
 	// If now is later than genesis timestamp, skip prepare
 	if a.config.GenesisTimestamp < uint64(time.Now().Unix()) {
@@ -681,13 +680,13 @@ func (a *Alien) getLastLoopInfo(chain consensus.ChainReader, header *types.Heade
 	if chain.Config().Alien.SideChain && mcLoopStartTime != 0 && mcPeriod != 0 && a.config.Period != 0 {
 		var loopHeaderInfo []string
 		inLastLoop := false
-		extraTime := (header.Time.Uint64() - mcLoopStartTime) % (mcPeriod * mcSignerLength)
+		extraTime := (header.Time - mcLoopStartTime) % (mcPeriod * mcSignerLength)
 		for i := uint64(0); i < a.config.MaxSignerCount*2*(mcPeriod/a.config.Period); i++ {
 			header = chain.GetHeader(header.ParentHash, header.Number.Uint64()-1)
 			if header == nil {
 				return "", consensus.ErrUnknownAncestor
 			}
-			newTime := (header.Time.Uint64() - mcLoopStartTime) % (mcPeriod * mcSignerLength)
+			newTime := (header.Time - mcLoopStartTime) % (mcPeriod * mcSignerLength)
 			if newTime > extraTime {
 				if !inLastLoop {
 					inLastLoop = true
@@ -960,12 +959,12 @@ func (a *Alien) Seal(chain consensus.ChainReader, block *types.Block, stop <-cha
 	}
 
 	if !chain.Config().Alien.SideChain {
-		if !snap.inturn(signer, header.Time.Uint64()) {
+		if !snap.inturn(signer, header.Time) {
 			<-stop
 			return nil, errUnauthorized
 		}
 	} else {
-		if notice, loopStartTime, period, signerLength, _, err := a.mcSnapshot(chain, signer, header.Time.Uint64()); err != nil {
+		if notice, loopStartTime, period, signerLength, _, err := a.mcSnapshot(chain, signer, header.Time); err != nil {
 			<-stop
 			return nil, err
 		} else {
@@ -995,7 +994,7 @@ func (a *Alien) Seal(chain consensus.ChainReader, block *types.Block, stop <-cha
 	}
 
 	// correct the time
-	delay := time.Unix(header.Time.Int64(), 0).Sub(time.Now())
+	delay := time.Unix(int64(header.Time), 0).Sub(time.Now())
 
 	select {
 	case <-stop:

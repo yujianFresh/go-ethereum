@@ -22,7 +22,6 @@ import (
 	"bytes"
 	"math/big"
 	"sort"
-
 	"github.com/ethereum/go-ethereum/common"
 )
 

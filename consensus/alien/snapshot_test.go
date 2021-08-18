@@ -886,7 +886,7 @@ func TestVoting(t *testing.T) {
 		}
 
 		// Create a pristine blockchain with the genesis injected
-		db := ethdb.NewMemDatabase()
+		db := rawdb.NewMemoryDatabase()
 		genesis.Commit(db)
 
 		// Create new alien
@@ -1012,7 +1012,7 @@ func TestVoting(t *testing.T) {
 
 			headers[j] = &types.Header{
 				Number:   big.NewInt(int64(j) + 1),
-				Time:     big.NewInt((int64(j)+1)*int64(defaultBlockPeriod) - 1),
+				Time:      uint64(j+1) * (defaultBlockPeriod - 1),
 				Coinbase: signer,
 				Extra:    ExtraData,
 			}
@@ -1022,7 +1022,7 @@ func TestVoting(t *testing.T) {
 			accounts.sign(headers[j], accounts.name(signer))
 
 			// Pass all the headers through alien and ensure tallying succeeds
-			snap, err = alien.snapshot(&testerChainReader{db: db}, headers[j].Number.Uint64(), headers[j].Hash(), headers[:j+1], genesisVotes, uint64(tt.lcrs))
+			snap, err = alien.snapshot(&testerChainReader{db: db}, headers[j].Number.Uint64(), headers[j].Hash(), headers[:j+1], genesisVotes, tt.lcrs)
 			genesisVotes = []*Vote{}
 			if err != nil {
 				t.Errorf("test %d: failed to create voting snapshot: %v", i, err)

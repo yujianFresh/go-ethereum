@@ -200,6 +200,8 @@ func IsHexAddress(s string) bool {
 	return len(s) == 2*AddressLength && isHex(s)
 }
 
+func (a Address) Str() string   { return string(a[:]) }
+
 // Bytes gets the string representation of the underlying address.
 func (a Address) Bytes() []byte { return a[:] }
 
@@ -247,6 +249,17 @@ func (a *Address) SetBytes(b []byte) {
 	}
 	copy(a[AddressLength-len(b):], b)
 }
+
+// Set string `s` to a. If s is larger than len(a) it will panic
+func (a *Address) SetString(s string) { a.SetBytes([]byte(s)) }
+
+// Sets a to other
+func (a *Address) Set(other Address) {
+	for i, v := range other {
+		a[i] = v
+	}
+}
+
 
 // MarshalText returns the hex representation of a.
 func (a Address) MarshalText() ([]byte, error) {

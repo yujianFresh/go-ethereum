@@ -258,10 +258,10 @@ func decodeHeaderExtra(config *params.AlienConfig, number *big.Int, b []byte, va
 }
 
 // Build side chain confirm data
-func (a *Alien) buildSCEventConfirmData(scHash common.Hash, headerNumber *big.Int, headerTime *big.Int, lastLoopInfo string, chargingInfo string) []byte {
+func (a *Alien) buildSCEventConfirmData(scHash common.Hash, headerNumber *big.Int, headerTime uint64, lastLoopInfo string, chargingInfo string) []byte {
 	return []byte(fmt.Sprintf("%s:%s:%s:%s:%s:%d:%d:%s:%s",
 		ufoPrefix, ufoVersion, ufoCategorySC, ufoEventConfirm,
-		scHash.Hex(), headerNumber.Uint64(), headerTime.Uint64(), lastLoopInfo, chargingInfo))
+		scHash.Hex(), headerNumber.Uint64(), headerTime, lastLoopInfo, chargingInfo))
 
 }
 

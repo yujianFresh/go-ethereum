@@ -18,7 +18,6 @@ package alien
 
 import (
 	"testing"
-
 	"github.com/ethereum/go-ethereum/common"
 )
 
