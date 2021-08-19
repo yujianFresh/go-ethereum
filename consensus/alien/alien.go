@@ -206,6 +206,7 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 	}
 	// Retrieve the signature from the header extra-data
 	if len(header.Extra) < extraSeal {
+		log.Error("alien ecrecover error","header.Extra length",len(header.Extra))
 		return common.Address{}, errMissingSignature
 	}
 	signature := header.Extra[len(header.Extra)-extraSeal:]
@@ -354,11 +355,10 @@ func (a *Alien) Prepare(chain consensus.ChainReader, header *types.Header) error
 // Note: The block header and state database might be updated to reflect any
 // consensus rules that happen at finalization (e.g. block rewards).
 func (a *Alien) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
-uncles []*types.Header, receipts []*types.Receipt) {
+uncles []*types.Header, receipts []*types.Receipt) error {
 	// No block rewards in PoA, so the state remains as is and uncles are dropped
-	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
-	header.UncleHash = types.CalcUncleHash(nil)
-	return
+	_, err := a.FinalizeAndAssemble(chain, header, state, txs, uncles, receipts)
+	return err
 }
 
 // FinalizeAndAssemble runs any post-transaction state modifications (e.g. block
@@ -1138,8 +1138,8 @@ func sideChainRewards(config *params.ChainConfig, state *state.StateDB, header *
 }
 
 // change block reward by replace this method
-func accumulateRewards2(config *params.AlienConfig, state *state.StateDB, header *types.Header, snap *Snapshot, refundGas RefundGas) error {
-	blockReward := config.BlockReward
+func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header, snap *Snapshot, refundGas RefundGas) error {
+	blockReward := config.Alien.BlockReward
 	// Accumulate the rewards for the miner and any included uncles
 	reward := new(big.Int).Set(blockReward)
 	state.AddBalance(header.Coinbase, reward)
@@ -1147,7 +1147,7 @@ func accumulateRewards2(config *params.AlienConfig, state *state.StateDB, header
 }
 
 // AccumulateRewards credits the coinbase of the given block with the mining reward.
-func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header, snap *Snapshot, refundGas RefundGas) error {
+func accumulateRewards2(config *params.ChainConfig, state *state.StateDB, header *types.Header, snap *Snapshot, refundGas RefundGas) error {
 	// Calculate the block reword by year
 	blockNumPerYear := secondsPerYear / config.Alien.Period
 	initSignerBlockReward := new(big.Int).Div(totalBlockReward, big.NewInt(int64(2*blockNumPerYear)))
