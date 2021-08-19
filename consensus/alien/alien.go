@@ -159,7 +159,7 @@ type Alien struct {
 
 // SignerFn is a signer callback function to request a hash to be signed by a
 // backing account.
-type SignerFn func(accounts.Account, []byte) ([]byte, error)
+type SignerFn func(accounts.Account, string, []byte) ([]byte, error)
 
 // SignTxFn is a signTx
 type SignTxFn func(accounts.Account, *types.Transaction, *big.Int) (*types.Transaction, error)
@@ -580,7 +580,7 @@ func (a *Alien) Seal(chain consensus.ChainReader, block *types.Block, results ch
 		return err
 	}
 
-	sighash, err := signFn(accounts.Account{Address: signer}, headerSigHash.Bytes())
+	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypeAline, headerSigHash.Bytes())
 	if err != nil {
 		return err
 	}
