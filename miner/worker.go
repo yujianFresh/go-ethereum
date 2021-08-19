@@ -566,6 +566,7 @@ func (w *worker) resultLoop() {
 	for {
 		select {
 		case block := <-w.resultCh:
+			log.Info("enter worker resultLoop <-w.resultCh")
 			// Short circuit when receiving empty result.
 			if block == nil {
 				continue
