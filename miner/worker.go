@@ -499,9 +499,10 @@ func (w *worker) mainLoop() {
 		case <-w.exitCh:
 			return
 		case <-time.After(alienDelay) :
+			log.Info("enter miner worker alienDelay ")
 			// try to seal block in each period, even no new block received in dpos
 			if w.chainConfig.Alien != nil && w.chainConfig.Alien.Period > 0 {
-				w.commitNewWork(nil, false, time.Now().Unix())
+				w.commitNewWork(nil, true, time.Now().Unix())
 			}
 		case <-w.txsSub.Err():
 			return
@@ -838,6 +839,7 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 
 // commitNewWork generates several new sealing tasks based on the parent block.
 func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) {
+	log.Info("enter commitNewWork")
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
@@ -968,6 +970,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 			log.Info("Fail to Sign the transaction by coinbase", "err", err)
 		}
 	}
+	log.Info("outer commitNewWork")
 }
 
 // For PBFT of alien consensus, the follow code may move later

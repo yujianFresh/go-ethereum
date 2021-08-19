@@ -568,11 +568,6 @@ func (a *Alien) Seal(chain consensus.ChainReader, block *types.Block, results ch
 	// correct the time
 	delay := time.Unix(int64(header.Time), 0).Sub(time.Now())
 
-	select {
-	case <-stop:
-		return nil
-	case <-time.After(delay):
-	}
 
 	// Sign all the things!
 	headerSigHash, err := sigHash(header)
@@ -586,6 +581,20 @@ func (a *Alien) Seal(chain consensus.ChainReader, block *types.Block, results ch
 	}
 
 	copy(header.Extra[len(header.Extra)-extraSeal:], sighash)
+
+	go func() {
+		select {
+		case <-stop:
+			return
+		case <-time.After(delay):
+		}
+
+		select {
+		case results <- block.WithSeal(header):
+		default:
+			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header, a.chainConfig.ChainID))
+		}
+	}()
 
 	return nil
 }
