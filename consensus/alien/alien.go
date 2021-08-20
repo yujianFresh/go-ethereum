@@ -145,16 +145,16 @@ var (
 
 // Alien is the delegated-proof-of-stake consensus engine.
 type Alien struct {
-	chainConfig *params.ChainConfig  // Chain config
-	config     *params.AlienConfig // Consensus engine configuration parameters
-	db         ethdb.Database      // Database to store and retrieve snapshot checkpoints
-	recents    *lru.ARCCache       // Snapshots for recent block to speed up reorgs
-	signatures *lru.ARCCache       // Signatures of recent blocks to speed up mining
-	signer     common.Address      // Ethereum address of the signing key
-	signFn     SignerFn            // Signer function to authorize hashes with
-	signTxFn   SignTxFn            // Sign transaction function to sign tx
-	lock       sync.RWMutex        // Protects the signer fields
-	lcsc       uint64              // Last confirmed side chain
+	chainConfig *params.ChainConfig // Chain config
+	config      *params.AlienConfig // Consensus engine configuration parameters
+	db          ethdb.Database      // Database to store and retrieve snapshot checkpoints
+	recents     *lru.ARCCache       // Snapshots for recent block to speed up reorgs
+	signatures  *lru.ARCCache       // Signatures of recent blocks to speed up mining
+	signer      common.Address      // Ethereum address of the signing key
+	signFn      SignerFn            // Signer function to authorize hashes with
+	signTxFn    SignTxFn            // Sign transaction function to sign tx
+	lock        sync.RWMutex        // Protects the signer fields
+	lcsc        uint64              // Last confirmed side chain
 }
 
 // SignerFn is a signer callback function to request a hash to be signed by a
@@ -206,7 +206,7 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 	}
 	// Retrieve the signature from the header extra-data
 	if len(header.Extra) < extraSeal {
-		log.Error("alien ecrecover error","header.Extra length",len(header.Extra))
+		log.Error("alien ecrecover error", "blockNumber", header.Number.Uint64(), "header.Extra length", len(header.Extra))
 		return common.Address{}, errMissingSignature
 	}
 	signature := header.Extra[len(header.Extra)-extraSeal:]
@@ -224,12 +224,13 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 	copy(signer[:], crypto.Keccak256(pubkey[1:])[12:])
 
 	sigcache.Add(hash, signer)
+	log.Info("alien ecrecover", "headerSigner", header.Coinbase.Hex(), "Signer", signer.Hex())
 	return signer, nil
 }
 
 // New creates a Alien delegated-proof-of-stake consensus engine with the initial
 // signers set to the ones provided by the user.
-func New(chainConfig *params.ChainConfig,config *params.AlienConfig, db ethdb.Database) *Alien {
+func New(chainConfig *params.ChainConfig, config *params.AlienConfig, db ethdb.Database) *Alien {
 	// Set any missing consensus parameters to their defaults
 	conf := *config
 	if conf.Epoch == 0 {
@@ -251,10 +252,10 @@ func New(chainConfig *params.ChainConfig,config *params.AlienConfig, db ethdb.Da
 
 	return &Alien{
 		chainConfig: chainConfig,
-		config:     &conf,
-		db:         db,
-		recents:    recents,
-		signatures: signatures,
+		config:      &conf,
+		db:          db,
+		recents:     recents,
+		signatures:  signatures,
 	}
 }
 
@@ -268,7 +269,7 @@ func (a *Alien) Author(header *types.Header) (common.Address, error) {
 // VerifyHeader checks whether a header conforms to the consensus rules of a
 // given engine. Verifying the seal may be done optionally here, or explicitly
 // via the VerifySeal method.
-func (a *Alien)  VerifyHeader(chain consensus.ChainReader, header *types.Header, seal bool) error {
+func (a *Alien) VerifyHeader(chain consensus.ChainReader, header *types.Header, seal bool) error {
 	return a.verifyHeader(chain, header, nil)
 }
 
@@ -318,7 +319,7 @@ func (a *Alien) Prepare(chain consensus.ChainReader, header *types.Header) error
 	// Ensure the timestamp has the correct delay
 	parent := chain.GetHeader(header.ParentHash, number-1)
 	if parent == nil {
-		return  consensus.ErrUnknownAncestor
+		return consensus.ErrUnknownAncestor
 	}
 	header.Time = parent.Time + a.config.Period
 	if int64(header.Time) < time.Now().Unix() {
@@ -355,7 +356,7 @@ func (a *Alien) Prepare(chain consensus.ChainReader, header *types.Header) error
 // Note: The block header and state database might be updated to reflect any
 // consensus rules that happen at finalization (e.g. block rewards).
 func (a *Alien) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
-uncles []*types.Header, receipts []*types.Receipt) error {
+	uncles []*types.Header, receipts []*types.Receipt) error {
 	// No block rewards in PoA, so the state remains as is and uncles are dropped
 	_, err := a.FinalizeAndAssemble(chain, header, state, txs, uncles, receipts)
 	return err
@@ -367,7 +368,8 @@ uncles []*types.Header, receipts []*types.Receipt) error {
 // Note: The block header and state database might be updated to reflect any
 // consensus rules that happen at finalization (e.g. block rewards).
 func (a *Alien) FinalizeAndAssemble(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
-uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
+	uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
+	log.Info("enter Alien FinalizeAndAssemble")
 	// Mix digest is reserved for now, set to empty
 	header.MixDigest = common.Hash{}
 	number := header.Number.Uint64()
@@ -375,7 +377,6 @@ uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
 	if parent == nil {
 		return nil, consensus.ErrUnknownAncestor
 	}
-
 
 	// Ensure the extra data has all it's components
 	if len(header.Extra) < extraVanity {
@@ -441,46 +442,39 @@ uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !chain.Config().Alien.SideChain {
-		// calculate votes write into header.extra
-		mcCurrentHeaderExtra, refundGas, err := a.processCustomTx(currentHeaderExtra, chain, header, state, txs, receipts)
+
+	// calculate votes write into header.extra
+	mcCurrentHeaderExtra, refundGas, err := a.processCustomTx(currentHeaderExtra, chain, header, state, txs, receipts)
+	if err != nil {
+		return nil, err
+	}
+	currentHeaderExtra = mcCurrentHeaderExtra
+	currentHeaderExtra.ConfirmedBlockNumber = snap.getLastConfirmedBlockNumber(currentHeaderExtra.CurrentBlockConfirmations).Uint64()
+	// write signerQueue in first header, from self vote signers in genesis block
+	if number == 1 {
+		currentHeaderExtra.LoopStartTime = a.config.GenesisTimestamp
+		if len(a.config.SelfVoteSigners) > 0 {
+			for i := 0; i < int(a.config.MaxSignerCount); i++ {
+				currentHeaderExtra.SignerQueue = append(currentHeaderExtra.SignerQueue, common.Address(a.config.SelfVoteSigners[i%len(a.config.SelfVoteSigners)]))
+			}
+		}
+	} else if number%a.config.MaxSignerCount == 0 {
+		//currentHeaderExtra.LoopStartTime = header.Time.Uint64()
+		currentHeaderExtra.LoopStartTime = currentHeaderExtra.LoopStartTime + a.config.Period*a.config.MaxSignerCount
+		// create random signersQueue in currentHeaderExtra by snapshot.Tally
+		currentHeaderExtra.SignerQueue = []common.Address{}
+		newSignerQueue, err := snap.createSignerQueue()
 		if err != nil {
 			return nil, err
 		}
-		currentHeaderExtra = mcCurrentHeaderExtra
-		currentHeaderExtra.ConfirmedBlockNumber = snap.getLastConfirmedBlockNumber(currentHeaderExtra.CurrentBlockConfirmations).Uint64()
-		// write signerQueue in first header, from self vote signers in genesis block
-		if number == 1 {
-			currentHeaderExtra.LoopStartTime = a.config.GenesisTimestamp
-			if len(a.config.SelfVoteSigners) > 0 {
-				for i := 0; i < int(a.config.MaxSignerCount); i++ {
-					currentHeaderExtra.SignerQueue = append(currentHeaderExtra.SignerQueue, common.Address(a.config.SelfVoteSigners[i%len(a.config.SelfVoteSigners)]))
-				}
-			}
-		} else if number%a.config.MaxSignerCount == 0 {
-			//currentHeaderExtra.LoopStartTime = header.Time.Uint64()
-			currentHeaderExtra.LoopStartTime = currentHeaderExtra.LoopStartTime + a.config.Period*a.config.MaxSignerCount
-			// create random signersQueue in currentHeaderExtra by snapshot.Tally
-			currentHeaderExtra.SignerQueue = []common.Address{}
-			newSignerQueue, err := snap.createSignerQueue()
-			if err != nil {
-				return nil, err
-			}
-			currentHeaderExtra.SignerQueue = newSignerQueue
-		}
-
-		// Accumulate any block rewards and commit the final state root
-		if err := accumulateRewards(chain.Config(), state, header, snap, refundGas); err != nil {
-			return nil, errUnauthorized
-		}
-	} else {
-		// use currentHeaderExtra.SignerQueue as signer queue
-		currentHeaderExtra.SignerQueue = append([]common.Address{header.Coinbase}, parentHeaderExtra.SignerQueue...)
-		if len(currentHeaderExtra.SignerQueue) > int(a.config.MaxSignerCount) {
-			currentHeaderExtra.SignerQueue = currentHeaderExtra.SignerQueue[:int(a.config.MaxSignerCount)]
-		}
-		sideChainRewards(chain.Config(), state, header, snap)
+		currentHeaderExtra.SignerQueue = newSignerQueue
 	}
+
+	// Accumulate any block rewards and commit the final state root
+	if err := accumulateRewards(chain.Config(), state, header, snap, refundGas); err != nil {
+		return nil, errUnauthorized
+	}
+
 	// encode header.extra
 	currentHeaderExtraEnc, err := encodeHeaderExtra(a.config, header.Number, currentHeaderExtra)
 	if err != nil {
@@ -496,7 +490,7 @@ uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 	// No uncle block
 	header.UncleHash = types.CalcUncleHash(nil)
-
+	log.Info("outer Alien FinalizeAndAssemble")
 	// Assemble and return the final block for sealing
 	return types.NewBlock(header, txs, nil, receipts), nil
 }
@@ -568,7 +562,6 @@ func (a *Alien) Seal(chain consensus.ChainReader, block *types.Block, results ch
 	// correct the time
 	delay := time.Unix(int64(header.Time), 0).Sub(time.Now())
 
-
 	// Sign all the things!
 	headerSigHash, err := sigHash(header)
 	if err != nil {
@@ -625,8 +618,6 @@ func (a *Alien) Close() error {
 	return nil
 }
 
-
-
 // verifyHeader checks whether a header conforms to the consensus rules.The
 // caller may optionally pass in a batch of parents (ascending order) to avoid
 // looking those up from the database. This is useful for concurrently verifying
@@ -646,6 +637,7 @@ func (a *Alien) verifyHeader(chain consensus.ChainReader, header *types.Header, 
 		return errMissingVanity
 	}
 	if len(header.Extra) < extraVanity+extraSeal {
+		log.Error("verifyHeader error", "blockNumber", header.Number.Uint64(), "header.Extra length", len(header.Extra), "extra", header.Extra)
 		return errMissingSignature
 	}
 
@@ -697,6 +689,7 @@ func (a *Alien) verifyCascadingFields(chain consensus.ChainReader, header *types
 
 // snapshot retrieves the authorization snapshot at a given point in time.
 func (a *Alien) snapshot(chain consensus.ChainReader, number uint64, hash common.Hash, parents []*types.Header, genesisVotes []*Vote, lcrs uint64) (*Snapshot, error) {
+	log.Info("enter Alien snapshot")
 	// Don't keep snapshot for side chain
 	//if chain.Config().Alien.SideChain {
 	//	return nil, nil
@@ -773,12 +766,9 @@ func (a *Alien) snapshot(chain consensus.ChainReader, number uint64, hash common
 		}
 		log.Trace("Stored voting snapshot to disk", "number", snap.Number, "hash", snap.Hash)
 	}
+	log.Info("outer Alien snapshot")
 	return snap, err
 }
-
-
-
-
 
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements. The method accepts an optional list of parent
@@ -803,10 +793,8 @@ func (a *Alien) verifySeal(chain consensus.ChainReader, header *types.Header, pa
 	}
 
 	// check the coinbase == signer
-	if header.Number.Cmp(big.NewInt(bugFixBlockNumber)) > 0 {
-		if signer != header.Coinbase {
-			return errUnauthorized
-		}
+	if signer != header.Coinbase {
+		return errUnauthorized
 	}
 
 	if !chain.Config().Alien.SideChain {
@@ -1045,10 +1033,6 @@ func (a *Alien) mcConfirmBlock(chain consensus.ChainReader, header *types.Header
 
 }
 
-
-
-
-
 // Authorize injects a private key into the consensus engine to mint new blocks with.
 func (a *Alien) Authorize(signer common.Address, signFn SignerFn, signTxFn SignTxFn) {
 	a.lock.Lock()
@@ -1088,9 +1072,6 @@ func (a *Alien) ApplyGenesis(chain consensus.ChainReader, genesisHash common.Has
 	return errMissingGenesisLightConfig
 }
 
-
-
-
 // SealHash returns the hash of a block prior to it being sealed.
 func SealHash(header *types.Header, chainId *big.Int) (hash common.Hash) {
 	hasher := _sha3.NewLegacyKeccak256()
@@ -1122,8 +1103,6 @@ func encodeSigHeader(w io.Writer, header *types.Header, chainId *big.Int) {
 		panic("can't encode: " + err.Error())
 	}
 }
-
-
 
 func sideChainRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header, snap *Snapshot) {
 	// vanish gas fee

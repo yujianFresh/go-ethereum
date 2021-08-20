@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/hashicorp/golang-lru"
 	"math/big"
@@ -61,7 +62,7 @@ const (
 	scNoticeClearDelayLoopCount = mcNoticeClearDelayLoopCount * scMaxCountPerPeriod * 2
 	scGasChargingDelayLoopCount = 1 // 1 is always enough
 	// bug fix
-	bugFixBlockNumber = 14456164   // fix bug for header
+	bugFixBlockNumber = 14456164 // fix bug for header
 )
 
 var (
@@ -412,7 +413,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		if err != nil {
 			return nil, err
 		}
-		if coinbase.Str() != header.Coinbase.Str() && header.Number.Cmp(big.NewInt(bugFixBlockNumber)) != 0{
+		if coinbase.Str() != header.Coinbase.Str() {
 			return nil, errUnauthorized
 		}
 
@@ -1115,9 +1116,12 @@ func (s *Snapshot) updateSnapshotForPunish(signerMissing []common.Address, heade
 
 // inturn returns if a signer at a given block height is in-turn or not.
 func (s *Snapshot) inturn(signer common.Address, headerTime uint64) bool {
+	log.Info("aline Snapshot inturn", "Signers", s.Signers)
 	// if all node stop more than period of one loop
 	if signersCount := len(s.Signers); signersCount > 0 {
-		if loopIndex := ((headerTime - s.LoopStartTime) / s.config.Period) % uint64(signersCount); *s.Signers[loopIndex] == signer {
+		loopIndex := ((headerTime - s.LoopStartTime) / s.config.Period) % uint64(signersCount)
+		log.Info("aline Snapshot", "loopIndex", loopIndex, "signer", s.Signers[loopIndex].String())
+		if *s.Signers[loopIndex] == signer {
 			return true
 		}
 	}

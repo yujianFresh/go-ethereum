@@ -293,6 +293,7 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	if g.Difficulty == nil {
 		head.Difficulty = params.GenesisDifficulty
 	}
+	// log.Info("genesis to Block","extra size",len(g.ExtraData))
 	statedb.Commit(false)
 	statedb.Database().TrieDB().Commit(root, true)
 

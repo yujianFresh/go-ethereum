@@ -142,6 +142,13 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		return nil, genesisErr
 	}
 	log.Info("Initialised chain configuration", "config", chainConfig)
+	if chainConfig.Alien != nil {
+		log.Info("Initialised alien configuration", "config", *chainConfig.Alien)
+		if config.NetworkId == 1 { //eth.DefaultConfig.NetworkId
+			// change default eth networkid  to default ttc networkid
+			config.NetworkId = chainConfig.ChainID.Uint64()
+		}
+	}
 
 	eth := &Ethereum{
 		config:            config,
@@ -156,6 +163,8 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		bloomRequests:     make(chan chan *bloombits.Retrieval),
 		bloomIndexer:      NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
 	}
+
+	log.Info("Initialising TTC protocol", "versions", ProtocolVersions, "network", config.NetworkId)
 
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
 	var dbVer = "<nil>"
