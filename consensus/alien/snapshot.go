@@ -390,7 +390,7 @@ func (s *Snapshot) copy() *Snapshot {
 
 // apply creates a new authorization snapshot by applying the given headers to
 // the original one.
-func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
+func (s *Snapshot) apply(headers []*types.Header, chainId *big.Int) (*Snapshot, error) {
 	// Allow passing in no headers for cleaner code
 	if len(headers) == 0 {
 		return s, nil
@@ -409,7 +409,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 
 	for _, header := range headers {
 		// Resolve the authorization key and check against signers
-		coinbase, err := ecrecover(header, s.sigcache)
+		coinbase, err := ecrecover(header, s.sigcache, chainId)
 		if err != nil {
 			return nil, err
 		}

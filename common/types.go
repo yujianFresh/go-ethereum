@@ -105,6 +105,10 @@ func (h Hash) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(h[:]).MarshalText()
 }
 
+
+// Set string `s` to h. If s is larger than len(h) s will be cropped (from left) to fit.
+func (h *Hash) SetString(s string) { h.SetBytes([]byte(s)) }
+
 // SetBytes sets the hash to the value of b.
 // If b is larger than len(h), b will be cropped from the left.
 func (h *Hash) SetBytes(b []byte) {
@@ -113,6 +117,13 @@ func (h *Hash) SetBytes(b []byte) {
 	}
 
 	copy(h[HashLength-len(b):], b)
+}
+
+// Sets h to other
+func (h *Hash) Set(other Hash) {
+	for i, v := range other {
+		h[i] = v
+	}
 }
 
 // Generate implements testing/quick.Generator.

@@ -17,8 +17,13 @@
 package alien
 
 import (
-	"testing"
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
+	"math/big"
+	"testing"
 )
 
 func TestAlien_PenaltyTrantor(t *testing.T) {
@@ -144,6 +149,49 @@ func TestAlien_PenaltyTrantor(t *testing.T) {
 		}
 
 	}
+}
+
+func TestAline_ecrecover(t *testing.T) {
+	accounts := newTesterAccountPool()
+	//testBankKey, _  := crypto.GenerateKey()
+	//testBankAddress := crypto.PubkeyToAddress(testBankKey.PublicKey)
+	e := "0xd98301090d846765746888676f312e31332e348664617277696e000000000000e6c0c0c0c0c084611f526fd594c559c9634823fe76d73c780c13c7dfbf8f80490fc080c0c0c0c0689db217814172cd00233191b8b583cf5c0caebd94869130e6be7b093aaa3140486e0b2366e209d1af0852ed9dfb98a320548830f39e697fddafcffa4ba4109d00"
+	header := &types.Header{
+		ParentHash: common.BigToHash(big.NewInt(0)),
+		Number:     common.Big1,
+		GasLimit:   100,
+		Extra:      common.FromHex(e),
+		Time:       0,
+	}
+	accounts.sign(header, "yujian")
+	signer, err := ecrecover2(header)
+	fmt.Println("coinbase", header.Coinbase.Hex())
+	fmt.Println("account",accounts.address("yujian").Hex())
+	fmt.Println("signer", signer.Hex())
+	fmt.Println(err)
+}
+
+// ecrecover extracts the Ethereum account address from a signed header.
+func ecrecover2(header *types.Header) (common.Address, error) {
+	// Retrieve the signature from the header extra-data
+	if len(header.Extra) < extraSeal {
+		log.Error("alien ecrecover error", "blockNumber", header.Number.Uint64(), "header.Extra length", len(header.Extra))
+		return common.Address{}, errMissingSignature
+	}
+	signature := header.Extra[len(header.Extra)-extraSeal:]
+
+	// Recover the public key and the Ethereum address
+	headerSigHash, err := sigHash(header)
+	if err != nil {
+		return common.Address{}, err
+	}
+	pubkey, err := crypto.Ecrecover(headerSigHash.Bytes(), signature)
+	if err != nil {
+		return common.Address{}, err
+	}
+	var signer common.Address
+	copy(signer[:], crypto.Keccak256(pubkey[1:])[12:])
+	return signer, nil
 }
 
 func TestAlien_Penalty(t *testing.T) {
