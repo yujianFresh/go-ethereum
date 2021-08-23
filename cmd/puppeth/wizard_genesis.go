@@ -150,7 +150,7 @@ func (w *wizard) makeGenesis() {
 
 				genesis.Config.Alien.SelfVoteSigners = append(genesis.Config.Alien.SelfVoteSigners, common.UnprefixedAddress(*address))
 				genesis.Alloc[*address] = core.GenesisAccount{
-					Balance: new(big.Int).Lsh(big.NewInt(1), 256-7), // 2^256 / 128 (allow many pre-funds without balance overflows)
+					Balance: genesis.Config.Alien.MinVoterBalance, // 2^256 / 128 (allow many pre-funds without balance overflows)
 				}
 				continue
 			}
