@@ -21,7 +21,6 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/consensus/alien"
 	"io"
 	"io/ioutil"
 	"math/big"
@@ -773,33 +772,6 @@ var (
 		Name:  "vm.evm",
 		Usage: "External EVM configuration (default = built-in interpreter)",
 		Value: "",
-	}
-
-	// PBFT settings
-	PBFTEnableFlag = cli.BoolFlag{
-		Name:  "pbft",
-		Usage: "PBFT miner coinbase send confirm transaction",
-	}
-
-	// Data side chain settings
-	SCAEnableFlag = cli.BoolFlag{
-		Name:  "sca",
-		Usage: "Side chain for App (dsc)",
-	}
-	SCAMainRPCAddrFlag = cli.StringFlag{
-		Name:  "sca.mainrpcaddr",
-		Usage: "Address of main chain ",
-		Value: "",
-	}
-	SCAMainRPCPortFlag = cli.IntFlag{
-		Name:  "sca.mainrpcport",
-		Usage: "Port of main chain rpc port",
-		Value: 0,
-	}
-	SCAPeriod = cli.IntFlag{
-		Name:  "sca.period",
-		Usage: "Period of each side chain block",
-		Value: 1,
 	}
 )
 
@@ -1776,8 +1748,6 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chai
 	var engine consensus.Engine
 	if config.Clique != nil {
 		engine = clique.New(config.Clique, chainDb)
-	} else if config.Alien != nil {
-		engine = alien.New(config,config.Alien, chainDb)
 	} else {
 		engine = ethash.NewFaker()
 		if !ctx.GlobalBool(FakePoWFlag.Name) {

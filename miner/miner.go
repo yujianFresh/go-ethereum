@@ -19,7 +19,6 @@ package miner
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/accounts"
 	"math/big"
 	"sync/atomic"
 	"time"
@@ -38,7 +37,6 @@ import (
 
 // Backend wraps all methods required for mining.
 type Backend interface {
-	AccountManager() *accounts.Manager
 	BlockChain() *core.BlockChain
 	TxPool() *core.TxPool
 }

@@ -19,7 +19,6 @@ package miner
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -408,12 +407,6 @@ func (w *worker) mainLoop() {
 	defer w.chainHeadSub.Unsubscribe()
 	defer w.chainSideSub.Unsubscribe()
 
-	// set the delay equal to period if use alien consensus
-	alienDelay := time.Duration(300) * time.Second
-	if w.chainConfig.Alien != nil && w.chainConfig.Alien.Period > 0 {
-		alienDelay = time.Duration(w.chainConfig.Alien.Period) * time.Second
-	}
-
 	for {
 		select {
 		case req := <-w.newWorkCh:
@@ -490,7 +483,7 @@ func (w *worker) mainLoop() {
 				// If clique is running in dev mode(period is 0), disable
 				// advance sealing here.
 				if w.chainConfig.Clique != nil && w.chainConfig.Clique.Period == 0 {
-					w.commitNewWork(nil, false, time.Now().Unix())
+					w.commitNewWork(nil, true, time.Now().Unix())
 				}
 			}
 			atomic.AddInt32(&w.newTxs, int32(len(ev.Txs)))
@@ -498,12 +491,6 @@ func (w *worker) mainLoop() {
 		// System stopped
 		case <-w.exitCh:
 			return
-		case <-time.After(alienDelay) :
-			log.Info("enter miner worker alienDelay ")
-			// try to seal block in each period, even no new block received in dpos
-			if w.chainConfig.Alien != nil && w.chainConfig.Alien.Period > 0 {
-				w.commitNewWork(nil, true, time.Now().Unix())
-			}
 		case <-w.txsSub.Err():
 			return
 		case <-w.chainHeadSub.Err():
@@ -535,7 +522,6 @@ func (w *worker) taskLoop() {
 			if w.newTaskHook != nil {
 				w.newTaskHook(task)
 			}
-			log.Info("enter w.taskCh")
 			// Reject duplicate sealing work due to resubmitting.
 			sealHash := w.engine.SealHash(task.block.Header())
 			if sealHash == prev {
@@ -555,7 +541,6 @@ func (w *worker) taskLoop() {
 			if err := w.engine.Seal(w.chain, task.block, w.resultCh, stopCh); err != nil {
 				log.Warn("Block sealing failed", "err", err)
 			}
-			log.Info("out w.taskCh")
 		case <-w.exitCh:
 			interrupt()
 			return
@@ -569,7 +554,6 @@ func (w *worker) resultLoop() {
 	for {
 		select {
 		case block := <-w.resultCh:
-			log.Info("enter worker resultLoop <-w.resultCh")
 			// Short circuit when receiving empty result.
 			if block == nil {
 				continue
@@ -841,9 +825,9 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 
 // commitNewWork generates several new sealing tasks based on the parent block.
 func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) {
-	log.Info("enter commitNewWork")
 	w.mu.RLock()
 	defer w.mu.RUnlock()
+
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
 
@@ -856,7 +840,6 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		log.Info("Mining too far in the future", "wait", common.PrettyDuration(wait))
 		time.Sleep(wait)
 	}
-
 
 	num := parent.Number()
 	header := &types.Header{
@@ -878,7 +861,6 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		log.Error("Failed to prepare header for mining", "err", err)
 		return
 	}
-
 	// If we are care about TheDAO hard-fork check whether to override the extra-data or not
 	if daoBlock := w.chainConfig.DAOForkBlock; daoBlock != nil {
 		// Check whether the block is among the fork extra-override range
@@ -898,7 +880,6 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		log.Error("Failed to create mining context", "err", err)
 		return
 	}
-
 	// Create the current work task and check any fork transitions needed
 	env := w.current
 	if w.chainConfig.DAOForkSupport && w.chainConfig.DAOForkBlock != nil && w.chainConfig.DAOForkBlock.Cmp(header.Number) == 0 {
@@ -939,72 +920,34 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	pending, err := w.eth.TxPool().Pending()
 	if err != nil {
 		log.Error("Failed to fetch pending transactions", "err", err)
+		return
 	}
-
-	if len(pending) != 0 {
-		// Split the pending transactions into locals and remotes
-		localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-		for _, account := range w.eth.TxPool().Locals() {
-			if txs := remoteTxs[account]; len(txs) > 0 {
-				delete(remoteTxs, account)
-				localTxs[account] = txs
-			}
-		}
-		if len(localTxs) > 0 {
-			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
-			if w.commitTransactions(txs, w.coinbase, interrupt) {
-				return
-			}
-		}
-		if len(remoteTxs) > 0 {
-			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
-			if w.commitTransactions(txs, w.coinbase, interrupt) {
-				return
-			}
-		}
-		log.Info("Gas pool", "height", header.Number.String(), "pool", w.current.gasPool.String())
+	// Short circuit if there is no available pending transactions
+	if len(pending) == 0 {
+		w.updateSnapshot()
+		return
 	}
-	w.commit(uncles, w.fullTaskHook, false, tstart)
-
-	log.Info("outer commitNewWork")
-}
-
-// For PBFT of alien consensus, the follow code may move later
-// After confirm a new block, the miner send a custom transaction to self, which value is 0
-// and data like "ufo:1:event:confirm:123" (ufo is prefix, 1 is version, 123 is block number
-// to let the next signer now this signer already confirm this block
-func (w *worker) sendConfirmTx(blockNumber *big.Int) error {
-	wallets := w.eth.AccountManager().Wallets()
-	// wallets check
-	if len(wallets) == 0 {
-		return nil
-	}
-	for _, wallet := range wallets {
-		if len(wallet.Accounts()) == 0 {
-			continue
-		} else {
-			for _, account := range wallet.Accounts() {
-				if account.Address == w.coinbase {
-					// coinbase account found
-					// send custom tx
-					nonce := w.snapshotState.GetNonce(account.Address)
-					tmpTx := types.NewTransaction(nonce, account.Address, big.NewInt(0), uint64(100000), big.NewInt(10000), []byte(fmt.Sprintf("ufo:1:event:confirm:%d", blockNumber)))
-					signedTx, err := wallet.SignTx(account, tmpTx, w.eth.BlockChain().Config().ChainID)
-					if err != nil {
-						return err
-					} else {
-						err = w.eth.TxPool().AddLocal(signedTx)
-						if err != nil {
-							return err
-						}
-					}
-					return nil
-				}
-			}
+	// Split the pending transactions into locals and remotes
+	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
+	for _, account := range w.eth.TxPool().Locals() {
+		if txs := remoteTxs[account]; len(txs) > 0 {
+			delete(remoteTxs, account)
+			localTxs[account] = txs
 		}
-
 	}
-	return nil
+	if len(localTxs) > 0 {
+		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
+		if w.commitTransactions(txs, w.coinbase, interrupt) {
+			return
+		}
+	}
+	if len(remoteTxs) > 0 {
+		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
+		if w.commitTransactions(txs, w.coinbase, interrupt) {
+			return
+		}
+	}
+	w.commit(uncles, w.fullTaskHook, true, tstart)
 }
 
 // commit runs any post-transaction state modifications, assembles the final block
@@ -1019,7 +962,6 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 	s := w.current.state.Copy()
 	block, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, w.current.receipts)
 	if err != nil {
-		log.Error("worker commit error","err",err)
 		return err
 	}
 	if w.isRunning() {

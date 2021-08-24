@@ -20,7 +20,6 @@ package eth
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/consensus/alien"
 	"math/big"
 	"runtime"
 	"sync"
@@ -142,13 +141,6 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		return nil, genesisErr
 	}
 	log.Info("Initialised chain configuration", "config", chainConfig)
-	if chainConfig.Alien != nil {
-		log.Info("Initialised alien configuration", "config", *chainConfig.Alien)
-		if config.NetworkId == 1 { //eth.DefaultConfig.NetworkId
-			// change default eth networkid  to default ttc networkid
-			config.NetworkId = chainConfig.ChainID.Uint64()
-		}
-	}
 
 	eth := &Ethereum{
 		config:            config,
@@ -163,8 +155,6 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		bloomRequests:     make(chan chan *bloombits.Retrieval),
 		bloomIndexer:      NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
 	}
-
-	log.Info("Initialising TTC protocol", "versions", ProtocolVersions, "network", config.NetworkId)
 
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
 	var dbVer = "<nil>"
@@ -262,8 +252,6 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 	// If proof-of-authority is requested, set it up
 	if chainConfig.Clique != nil {
 		return clique.New(chainConfig.Clique, db)
-	} else if chainConfig.Alien != nil {
-		return alien.New(chainConfig,chainConfig.Alien,db)
 	}
 	// Otherwise assume proof-of-work
 	switch config.PowMode {
@@ -484,14 +472,6 @@ func (s *Ethereum) StartMining(threads int) error {
 				return fmt.Errorf("signer missing: %v", err)
 			}
 			clique.Authorize(eb, wallet.SignData)
-		}
-		if a, ok := s.engine.(*alien.Alien); ok {
-			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
-			if wallet == nil || err != nil {
-				log.Error("Etherbase account unavailable locally", "err", err)
-				return fmt.Errorf("signer missing: %v", err)
-			}
-			a.Authorize(eb, wallet.SignData, wallet.SignTx)
 		}
 		// If mining is started, we can disable the transaction rejection mechanism
 		// introduced to speed sync times.
