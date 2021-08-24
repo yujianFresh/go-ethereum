@@ -45,13 +45,13 @@ func (w *wizard) makeGenesis() {
 		Alloc:      make(core.GenesisAlloc),
 		Config: &params.ChainConfig{
 			HomesteadBlock:      big.NewInt(0),
-			EIP150Block:         big.NewInt(1),
-			EIP155Block:         big.NewInt(2),
-			EIP158Block:         big.NewInt(3),
-			ByzantiumBlock:      big.NewInt(4),
-			ConstantinopleBlock: big.NewInt(5),
-			PetersburgBlock:     big.NewInt(6),
-			IstanbulBlock:       big.NewInt(7),
+			EIP150Block:         big.NewInt(0),
+			EIP155Block:         big.NewInt(0),
+			EIP158Block:         big.NewInt(0),
+			ByzantiumBlock:      big.NewInt(0),
+			ConstantinopleBlock: big.NewInt(0),
+			PetersburgBlock:     big.NewInt(0),
+			IstanbulBlock:       big.NewInt(0),
 		},
 	}
 	// Figure out which consensus engine to choose
@@ -59,7 +59,6 @@ func (w *wizard) makeGenesis() {
 	fmt.Println("Which consensus engine to use? (default = clique)")
 	fmt.Println(" 1. Ethash - proof-of-work")
 	fmt.Println(" 2. Clique - proof-of-authority")
-	fmt.Println(" 3. Alien  - delegated-proof-of-stake")
 
 	choice := w.read()
 	switch {
@@ -105,61 +104,7 @@ func (w *wizard) makeGenesis() {
 		for i, signer := range signers {
 			copy(genesis.ExtraData[32+i*common.AddressLength:], signer[:])
 		}
-	case choice == "" || choice == "3":
-		// In the case of alien, configure the consensus parameters
-		genesis.Difficulty = big.NewInt(1)
-		genesis.Config.Alien = &params.AlienConfig{
-			Period:           3,
-			Epoch:            201600,
-			MaxSignerCount:   21,
-			MinVoterBalance:  new(big.Int).Mul(big.NewInt(1000), big.NewInt(1e+18)),
-			GenesisTimestamp: uint64(time.Now().Unix()) + (60 * 5), // Add five minutes
-			SelfVoteSigners:  []common.UnprefixedAddress{},
-		}
-		fmt.Println()
-		fmt.Println("How many seconds should blocks take? (default = 3)")
-		genesis.Config.Alien.Period = uint64(w.readDefaultInt(3))
 
-		fmt.Println()
-		fmt.Println("How many blocks create for one epoch? (default = 201600)")
-		genesis.Config.Alien.Epoch = uint64(w.readDefaultInt(201600))
-
-		fmt.Println()
-		fmt.Println("What is the max number of signers? (default = 21)")
-		genesis.Config.Alien.MaxSignerCount = uint64(w.readDefaultInt(21))
-
-		fmt.Println()
-		fmt.Println("What is the minimize balance for valid voter ? (default = 1000 ETH)")
-		genesis.Config.Alien.MinVoterBalance = new(big.Int).Mul(big.NewInt(int64(w.readDefaultInt(1000))),
-			big.NewInt(1e+18))
-
-		fmt.Println()
-		fmt.Println("How many block reward one block generate ? (default = 10 ETH)")
-		genesis.Config.Alien.BlockReward = new(big.Int).Mul(big.NewInt(int64(w.readDefaultInt(10))),
-			big.NewInt(1e+18))
-
-		fmt.Println()
-		fmt.Println("How many minutes delay to create first block ? (default = 5 minutes)")
-		genesis.Config.Alien.GenesisTimestamp = uint64(time.Now().Unix()) + uint64(w.readDefaultInt(5)*60)
-
-		// We also need the initial list of signers
-		fmt.Println()
-		fmt.Println("Which accounts are vote by themselves to seal the block?(least one, those accounts will be auto pre-funded)")
-		for {
-			if address := w.readAddress(); address != nil {
-
-				genesis.Config.Alien.SelfVoteSigners = append(genesis.Config.Alien.SelfVoteSigners, common.UnprefixedAddress(*address))
-				genesis.Alloc[*address] = core.GenesisAccount{
-					Balance: genesis.Config.Alien.MinVoterBalance, // 2^256 / 128 (allow many pre-funds without balance overflows)
-				}
-				continue
-			}
-			if len(genesis.Config.Alien.SelfVoteSigners) > 0 {
-				break
-			}
-		}
-
-		genesis.ExtraData = make([]byte, 32+65)
 	default:
 		log.Crit("Invalid consensus engine choice", "choice", choice)
 	}
@@ -234,7 +179,7 @@ func (w *wizard) importGenesis() {
 	// Parse the genesis file and inject it successful
 	var genesis core.Genesis
 	if err := json.NewDecoder(reader).Decode(&genesis); err != nil {
-		log.Error("Invalid genesis spec: %v", err)
+		log.Error("Invalid genesis spec", "err", err)
 		return
 	}
 	log.Info("Imported genesis block")
@@ -290,6 +235,10 @@ func (w *wizard) manageGenesis() {
 		fmt.Printf("Which block should Istanbul come into effect? (default = %v)\n", w.conf.Genesis.Config.IstanbulBlock)
 		w.conf.Genesis.Config.IstanbulBlock = w.readDefaultBigInt(w.conf.Genesis.Config.IstanbulBlock)
 
+		fmt.Println()
+		fmt.Printf("Which block should YOLOv1 come into effect? (default = %v)\n", w.conf.Genesis.Config.YoloV1Block)
+		w.conf.Genesis.Config.YoloV1Block = w.readDefaultBigInt(w.conf.Genesis.Config.YoloV1Block)
+
 		out, _ := json.MarshalIndent(w.conf.Genesis.Config, "", "  ")
 		fmt.Printf("Chain configuration updated:\n\n%s\n", out)
 
@@ -298,12 +247,38 @@ func (w *wizard) manageGenesis() {
 	case "2":
 		// Save whatever genesis configuration we currently have
 		fmt.Println()
-		fmt.Printf("Which file to save the genesis into? (default = %s.json)\n", w.network)
-		out, _ := json.MarshalIndent(w.conf.Genesis, "", "  ")
-		if err := ioutil.WriteFile(w.readDefaultString(fmt.Sprintf("%s.json", w.network)), out, 0644); err != nil {
-			log.Error("Failed to save genesis file", "err", err)
+		fmt.Printf("Which folder to save the genesis specs into? (default = current)\n")
+		fmt.Printf("  Will create %s.json, %s-aleth.json, %s-harmony.json, %s-parity.json\n", w.network, w.network, w.network, w.network)
+
+		folder := w.readDefaultString(".")
+		if err := os.MkdirAll(folder, 0755); err != nil {
+			log.Error("Failed to create spec folder", "folder", folder, "err", err)
+			return
 		}
-		log.Info("Exported existing genesis block")
+		out, _ := json.MarshalIndent(w.conf.Genesis, "", "  ")
+
+		// Export the native genesis spec used by puppeth and Geth
+		gethJson := filepath.Join(folder, fmt.Sprintf("%s.json", w.network))
+		if err := ioutil.WriteFile((gethJson), out, 0644); err != nil {
+			log.Error("Failed to save genesis file", "err", err)
+			return
+		}
+		log.Info("Saved native genesis chain spec", "path", gethJson)
+
+		// Export the genesis spec used by Aleth (formerly C++ Ethereum)
+		if spec, err := newAlethGenesisSpec(w.network, w.conf.Genesis); err != nil {
+			log.Error("Failed to create Aleth chain spec", "err", err)
+		} else {
+			saveGenesis(folder, w.network, "aleth", spec)
+		}
+		// Export the genesis spec used by Parity
+		if spec, err := newParityChainSpec(w.network, w.conf.Genesis, []string{}); err != nil {
+			log.Error("Failed to create Parity chain spec", "err", err)
+		} else {
+			saveGenesis(folder, w.network, "parity", spec)
+		}
+		// Export the genesis spec used by Harmony (formerly EthereumJ)
+		saveGenesis(folder, w.network, "harmony", w.conf.Genesis)
 
 	case "3":
 		// Make sure we don't have any services running
