@@ -326,6 +326,7 @@ type ChainConfig struct {
 	// Various consensus engines
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
+	Themis *ThemisConfig `json:"themis,omitempty" toml:",omitempty"`
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -334,6 +335,21 @@ type EthashConfig struct{}
 // String implements the stringer interface, returning the consensus engine details.
 func (c *EthashConfig) String() string {
 	return "ethash"
+}
+
+type ThemisConfig struct {
+	Period           uint64                     `json:"period"` // Number of seconds between blocks to enforce
+	Epoch            uint64                     `json:"epoch"`  // Epoch length to reset votes and checkpoint
+	MaxSignerCount   uint64                     `json:"maxSignerCount"`
+	MinVoterBalance  *big.Int                   `json:"minVoterBalance"`  // Min voter balance to valid this vote
+	BlockReward      *big.Int                   `json:"blockReward"`      // produce block reward
+	GenesisTimestamp uint64                     `json:"genesisTimestamp"` // The LoopStartTime of first Block
+	SelfVoteSigners  []common.UnprefixedAddress `json:"signers"`          // Signers vote by themselves to seal the block, make sure the signer accounts are pre-funded
+}
+
+// String implements the stringer interface, returning the consensus engine details.
+func (t *ThemisConfig) String() string {
+	return "themis"
 }
 
 // CliqueConfig is the consensus engine configs for proof-of-authority based sealing.
