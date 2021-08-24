@@ -1,0 +1,22 @@
+启动eth开发链:
+	./geth --datadir --dev
+	web3.fromWei(eth.getBalance(eth.accounts[0]),'ether')
+    eth.sendTransaction({from: eth.accounts[0],to:'0x7C3d3C58ba556f62Ec57a56e85aEBd0581E9648F', value: web3.toWei(0.01,"ether")})
+
+
+dev chain log:
+
+INFO [08-24|10:21:32.389] Started P2P networking                   self="enode://3e54f55f0386dcf4fecdc4b83897d20c9f3939405a20cced63caa7d350c1a97713f49cf1abada8e418379af22dd2b653bebf9c2b722ccd2075c2b9a2f245ad40@127.0.0.1:61854?discport=0"
+INFO [08-24|10:21:32.391] IPC endpoint opened                      url=/Users/yujian/ethnet/node2/geth.ipc
+INFO [08-24|10:21:32.391] Transaction pool price threshold updated price=1000000000
+INFO [08-24|10:21:32.391] Transaction pool price threshold updated price=1
+INFO [08-24|10:21:32.391] Etherbase automatically configured       address=0xf6cA18b65C810342252B95eb6e86E11Bf1c90B42
+INFO [08-24|10:21:32.391] Commit new mining work                   number=1 sealhash="9a8a92…d0601d" uncles=0 txs=0 gas=0 fees=0 elapsed="121.296µs"
+INFO [08-24|10:21:32.391] Sealing paused, waiting for transactions
+INFO [08-24|10:23:33.403] Setting new local account                address=0xf6cA18b65C810342252B95eb6e86E11Bf1c90B42
+INFO [08-24|10:23:33.403] Submitted transaction                    fullhash=0x0e77436738a19f906931cf38b92b1934a91b8a0ea72f2dbdb60fb5fb80a08524 recipient=0x7C3d3C58ba556f62Ec57a56e85aEBd0581E9648F
+INFO [08-24|10:23:33.403] Commit new mining work                   number=1 sealhash="f8de3f…1707d7" uncles=0 txs=1 gas=21000 fees=2.1e-14 elapsed="171.453µs"
+INFO [08-24|10:23:33.404] Successfully sealed new block            number=1 sealhash="f8de3f…1707d7" hash="5cdd4b…407d04" elapsed="733.795µs"
+INFO [08-24|10:23:33.404] 🔨 mined potential block                  number=1 hash="5cdd4b…407d04"
+INFO [08-24|10:23:33.404] Commit new mining work                   number=2 sealhash="61ae60…10e39a" uncles=0 txs=0 gas=0     fees=0       elapsed="391.369µs"
+INFO [08-24|10:23:33.404] Sealing paused, waiting for transactions
