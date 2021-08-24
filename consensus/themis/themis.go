@@ -195,6 +195,15 @@ func New(
 	}
 }
 
+// change block reward by replace this method
+func accumulateRewards2(config *params.ThemisConfig, state *state.StateDB, header *types.Header) error {
+	blockReward := config.BlockReward
+	// Accumulate the rewards for the miner and any included uncles
+	reward := new(big.Int).Set(blockReward)
+	state.AddBalance(header.Coinbase, reward)
+	return nil
+}
+
 func (t *Themis) Author(header *types.Header) (common.Address, error) {
 	return ecrecover(header, t.signatures)
 }
