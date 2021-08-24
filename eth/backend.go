@@ -20,6 +20,7 @@ package eth
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/consensus/themis"
 	"math/big"
 	"runtime"
 	"sync"
@@ -256,6 +257,10 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 	// If proof-of-authority is requested, set it up
 	if chainConfig.Clique != nil {
 		return clique.New(chainConfig.Clique, db)
+	}
+
+	if chainConfig.Themis != nil {
+		return themis.New(chainConfig, db, nil)
 	}
 	// Otherwise assume proof-of-work
 	switch config.PowMode {
