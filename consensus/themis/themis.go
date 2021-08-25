@@ -1,15 +1,18 @@
 package themis
 
 import (
+	"bytes"
 	"errors"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -17,26 +20,33 @@ import (
 	"golang.org/x/crypto/sha3"
 	"io"
 	"math/big"
+	"math/rand"
 	"sync"
+	"time"
 )
 
 const (
+	checkpointInterval = 1024 // Number of blocks after which to save the vote snapshot to the database
 	inmemorySnapshots  = 128  // Number of recent vote snapshots to keep in memory
 	inmemorySignatures = 4096 // Number of recent block signatures to keep in memory
+
+	wiggleTime = 500 * time.Millisecond // Random delay (per signer) to allow concurrent signers
 )
 
-// themis dpos protocol constants.
+// Clique proof-of-authority protocol constants.
 var (
-	extraVanity           = 32                     // Fixed number of extra-data prefix bytes reserved for signer vanity
-	extraSeal             = crypto.SignatureLength // Fixed number of extra-data suffix bytes reserved for signer seal
-	diffInTurn            = big.NewInt(2)          // Block difficulty for in-turn signatures
-	diffNoTurn            = big.NewInt(1)          // Block difficulty for out-of-turn signatures
-	defaultEpochLength    = uint64(101)            // Default number of blocks after which vote's period of validity, About one week if period is 3
-	defaultBlockPeriod    = uint64(10)             // Default minimum difference between two consecutive block's timestamps
-	defaultMaxSignerCount = uint64(101)            //
-	defaultBlockReward    = new(big.Int).Mul(big.NewInt(10), big.NewInt(1e+18))
-	minVoterBalance       = new(big.Int).Mul(big.NewInt(100), big.NewInt(1e+18))
-	uncleHash             = types.CalcUncleHash(nil) // Always Keccak256(RLP([])) as uncles are meaningless outside of PoW.
+	epochLength = uint64(30000) // Default number of blocks after which to checkpoint and reset the pending votes
+
+	extraVanity = 32                     // Fixed number of extra-data prefix bytes reserved for signer vanity
+	extraSeal   = crypto.SignatureLength // Fixed number of extra-data suffix bytes reserved for signer seal
+
+	nonceAuthVote = hexutil.MustDecode("0xffffffffffffffff") // Magic nonce number to vote on adding a new signer
+	nonceDropVote = hexutil.MustDecode("0x0000000000000000") // Magic nonce number to vote on removing a signer.
+
+	uncleHash = types.CalcUncleHash(nil) // Always Keccak256(RLP([])) as uncles are meaningless outside of PoW.
+
+	diffInTurn = big.NewInt(2) // Block difficulty for in-turn signatures
+	diffNoTurn = big.NewInt(1) // Block difficulty for out-of-turn signatures
 )
 
 // Various error messages to mark blocks invalid. These should be private to
@@ -140,45 +150,31 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 
 // Themis is the dpos consensus engine
 type Themis struct {
-	chainConfig *params.ChainConfig  // Chain config
-	config      *params.ThemisConfig // Consensus engine configuration parameters for themis consensus
-	db          ethdb.Database       // Database to store and retrieve snapshot checkpoints
+	config *params.ThemisConfig // Consensus engine configuration parameters for themis consensus
+	db     ethdb.Database       // Database to store and retrieve snapshot checkpoints
 
-	recentSnaps *lru.ARCCache // Snapshots for recent block to speed up
-	signatures  *lru.ARCCache // Signatures of recent blocks to speed up mining
+	recents    *lru.ARCCache // Snapshots for recent block to speed up reorgs
+	signatures *lru.ARCCache // Signatures of recent blocks to speed up mining
+
+	proposals map[common.Address]bool // Current list of proposals we are pushing
 
 	signer common.Address // Ethereum address of the signing key
 	signFn SignerFn       // Signer function to authorize hashes with
+	lock   sync.RWMutex   // Protects the signer fields
 
-	lock sync.RWMutex // Protects the signer fields
-
-	ethAPI *ethapi.PublicBlockChainAPI
 	// The fields below are for testing only
 	fakeDiff bool // Skip difficulty verifications
 }
 
 // New creates a Themis consensus engine.
 func New(
-	chainConfig *params.ChainConfig,
+	config *params.ThemisConfig,
 	db ethdb.Database,
-	ethAPI *ethapi.PublicBlockChainAPI,
 ) *Themis {
 	// Set any missing consensus parameters to their defaults
-	conf := *chainConfig.Themis
+	conf := *config
 	if conf.Epoch == 0 {
-		conf.Epoch = defaultEpochLength
-	}
-	if conf.Period == 0 {
-		conf.Period = defaultBlockPeriod
-	}
-	if conf.MaxSignerCount == 0 {
-		conf.MaxSignerCount = defaultMaxSignerCount
-	}
-	if conf.MinVoterBalance.Uint64() > 0 {
-		minVoterBalance = conf.MinVoterBalance
-	}
-	if conf.BlockReward == nil {
-		conf.BlockReward = defaultBlockReward
+		conf.Epoch = epochLength
 	}
 
 	// Allocate the snapshot caches and create the engine
@@ -186,17 +182,16 @@ func New(
 	signatures, _ := lru.NewARC(inmemorySignatures)
 
 	return &Themis{
-		chainConfig: chainConfig,
-		config:      chainConfig.Themis,
-		db:          db,
-		ethAPI:      ethAPI,
-		recentSnaps: recents,
-		signatures:  signatures,
+		config:     &conf,
+		db:         db,
+		recents:    recents,
+		signatures: signatures,
+		proposals:  make(map[common.Address]bool),
 	}
 }
 
 // change block reward by replace this method
-func accumulateRewards2(config *params.ThemisConfig, state *state.StateDB, header *types.Header) error {
+func accumulateRewards(config *params.ThemisConfig, state *state.StateDB, header *types.Header) error {
 	blockReward := config.BlockReward
 	// Accumulate the rewards for the miner and any included uncles
 	reward := new(big.Int).Set(blockReward)
@@ -213,21 +208,42 @@ func (t *Themis) VerifyHeader(chain consensus.ChainReader, header *types.Header,
 }
 
 func (t *Themis) verifyHeader(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
-	// Short circuit if the header is known, or its parent not
+	if header.Number == nil {
+		return errUnknownBlock
+	}
 	number := header.Number.Uint64()
-	if chain.GetHeader(header.Hash(), number) != nil {
-		return nil
-	}
-	parent := chain.GetHeader(header.ParentHash, number-1)
-	if parent == nil {
-		return consensus.ErrUnknownAncestor
-	}
 
-	if header.Time <= parent.Time {
-		return errors.New("timestamp older than parent")
+	// Don't waste time checking blocks from the future
+	if header.Time > uint64(time.Now().Unix()) {
+		return consensus.ErrFutureBlock
 	}
-	// TODO verify validator signatures
-
+	// Checkpoint blocks need to enforce zero beneficiary
+	checkpoint := (number % t.config.Epoch) == 0
+	if checkpoint && header.Coinbase != (common.Address{}) {
+		return errInvalidCheckpointBeneficiary
+	}
+	// Nonces must be 0x00..0 or 0xff..f, zeroes enforced on checkpoints
+	if !bytes.Equal(header.Nonce[:], nonceAuthVote) && !bytes.Equal(header.Nonce[:], nonceDropVote) {
+		return errInvalidVote
+	}
+	if checkpoint && !bytes.Equal(header.Nonce[:], nonceDropVote) {
+		return errInvalidCheckpointVote
+	}
+	// Check that the extra-data contains both the vanity and signature
+	if len(header.Extra) < extraVanity {
+		return errMissingVanity
+	}
+	if len(header.Extra) < extraVanity+extraSeal {
+		return errMissingSignature
+	}
+	// Ensure that the extra-data contains a signer list on checkpoint, but none otherwise
+	signersBytes := len(header.Extra) - extraVanity - extraSeal
+	if !checkpoint && signersBytes != 0 {
+		return errExtraSigners
+	}
+	if checkpoint && signersBytes%common.AddressLength != 0 {
+		return errInvalidCheckpointSigners
+	}
 	// Ensure that the mix digest is zero as we don't have fork protection currently
 	if header.MixDigest != (common.Hash{}) {
 		return errInvalidMixDigest
@@ -242,7 +258,91 @@ func (t *Themis) verifyHeader(chain consensus.ChainReader, header *types.Header,
 			return errInvalidDifficulty
 		}
 	}
-	// TODO verify snapshot
+	// If all checks passed, validate any special fields for hard forks
+	if err := misc.VerifyForkHashes(chain.Config(), header, false); err != nil {
+		return err
+	}
+	// All basic checks passed, verify cascading fields
+	return t.verifyCascadingFields(chain, header, parents)
+}
+
+func (t *Themis) verifyCascadingFields(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+	// The genesis block is the always valid dead-end
+	number := header.Number.Uint64()
+	if number == 0 {
+		return nil
+	}
+	// Ensure that the block's timestamp isn't too close to its parent
+	var parent *types.Header
+	if len(parents) > 0 {
+		parent = parents[len(parents)-1]
+	} else {
+		parent = chain.GetHeader(header.ParentHash, number-1)
+	}
+	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
+		return consensus.ErrUnknownAncestor
+	}
+	if parent.Time+t.config.Period > header.Time {
+		return errInvalidTimestamp
+	}
+	// Retrieve the snapshot needed to verify this header and cache it
+	snap, err := t.snapshot(chain, number-1, header.ParentHash, parents)
+	if err != nil {
+		return err
+	}
+	// If the block is a checkpoint block, verify the signer list
+	if number%t.config.Epoch == 0 {
+		signers := make([]byte, len(snap.Signers)*common.AddressLength)
+		for i, signer := range snap.signers() {
+			copy(signers[i*common.AddressLength:], signer[:])
+		}
+		extraSuffix := len(header.Extra) - extraSeal
+		if !bytes.Equal(header.Extra[extraVanity:extraSuffix], signers) {
+			return errMismatchingCheckpointSigners
+		}
+	}
+	// All basic checks passed, verify the seal and return
+	return t.verifySeal(chain, header, parents)
+}
+
+func (t *Themis) verifySeal(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+	// Verifying the genesis block is not supported
+	number := header.Number.Uint64()
+	if number == 0 {
+		return errUnknownBlock
+	}
+	// Retrieve the snapshot needed to verify this header and cache it
+	snap, err := t.snapshot(chain, number-1, header.ParentHash, parents)
+	if err != nil {
+		return err
+	}
+
+	// Resolve the authorization key and check against signers
+	signer, err := ecrecover(header, t.signatures)
+	if err != nil {
+		return err
+	}
+	if _, ok := snap.Signers[signer]; !ok {
+		return errUnauthorizedSigner
+	}
+	for seen, recent := range snap.Recents {
+		if recent == signer {
+			// Signer is among recents, only fail if the current block doesn't shift it out
+			if limit := uint64(len(snap.Signers)/2 + 1); seen > number-limit {
+				return errRecentlySigned
+			}
+		}
+	}
+	// Ensure that the difficulty corresponds to the turn-ness of the signer
+	if !t.fakeDiff {
+		inturn := snap.inturn(header.Number.Uint64(), signer)
+		if inturn && header.Difficulty.Cmp(diffInTurn) != 0 {
+			return errWrongDifficulty
+		}
+		if !inturn && header.Difficulty.Cmp(diffNoTurn) != 0 {
+			return errWrongDifficulty
+		}
+	}
 	return nil
 }
 
@@ -272,28 +372,163 @@ func (t *Themis) VerifyUncles(chain consensus.ChainReader, block *types.Block) e
 }
 
 func (t *Themis) VerifySeal(chain consensus.ChainReader, header *types.Header) error {
-	// TODO
-	return nil
+	return t.verifySeal(chain, header, nil)
 }
 
 func (t *Themis) Prepare(chain consensus.ChainReader, header *types.Header) error {
-	// TODO
+	// If the block isn't a checkpoint, cast a random vote (good enough for now)
+	header.Coinbase = common.Address{}
+	header.Nonce = types.BlockNonce{}
+
+	number := header.Number.Uint64()
+	// Assemble the voting snapshot to check which votes make sense
+	snap, err := t.snapshot(chain, number-1, header.ParentHash, nil)
+	if err != nil {
+		return err
+	}
+	if number%t.config.Epoch != 0 {
+		t.lock.RLock()
+
+		// Gather all the proposals that make sense voting on
+		addresses := make([]common.Address, 0, len(t.proposals))
+		for address, authorize := range t.proposals {
+			if snap.validVote(address, authorize) {
+				addresses = append(addresses, address)
+			}
+		}
+		// If there's pending proposals, cast a vote on them
+		if len(addresses) > 0 {
+			header.Coinbase = addresses[rand.Intn(len(addresses))]
+			if t.proposals[header.Coinbase] {
+				copy(header.Nonce[:], nonceAuthVote)
+			} else {
+				copy(header.Nonce[:], nonceDropVote)
+			}
+		}
+		t.lock.RUnlock()
+	}
+	// Set the correct difficulty
+	header.Difficulty = CalcDifficulty(snap, t.signer)
+
+	// Ensure the extra data has all its components
+	if len(header.Extra) < extraVanity {
+		header.Extra = append(header.Extra, bytes.Repeat([]byte{0x00}, extraVanity-len(header.Extra))...)
+	}
+	header.Extra = header.Extra[:extraVanity]
+
+	if number%t.config.Epoch == 0 {
+		for _, signer := range snap.signers() {
+			header.Extra = append(header.Extra, signer[:]...)
+		}
+	}
+	header.Extra = append(header.Extra, make([]byte, extraSeal)...)
+
+	// Mix digest is reserved for now, set to empty
+	header.MixDigest = common.Hash{}
+
+	// Ensure the timestamp has the correct delay
+	parent := chain.GetHeader(header.ParentHash, number-1)
+	if parent == nil {
+		return consensus.ErrUnknownAncestor
+	}
+	header.Time = parent.Time + t.config.Period
+	if header.Time < uint64(time.Now().Unix()) {
+		header.Time = uint64(time.Now().Unix())
+	}
 	return nil
 }
 
 func (t *Themis) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
 	uncles []*types.Header) {
-	// TODO
+	_ = accumulateRewards(t.config, state, header)
+	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
+	header.UncleHash = types.CalcUncleHash(nil)
 }
 
 func (t *Themis) FinalizeAndAssemble(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
 	uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
-	// TODO
-	return nil, nil
+	_ = accumulateRewards(t.config, state, header)
+	// No block rewards in PoA, so the state remains as is and uncles are dropped
+	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
+	header.UncleHash = types.CalcUncleHash(nil)
+
+	// Assemble and return the final block for sealing
+	return types.NewBlock(header, txs, nil, receipts), nil
+}
+
+func ThemisRLP(header *types.Header) []byte {
+	b := new(bytes.Buffer)
+	encodeSigHeader(b, header)
+	return b.Bytes()
 }
 
 func (t *Themis) Seal(chain consensus.ChainReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
-	// TODO
+	header := block.Header()
+
+	// Sealing the genesis block is not supported
+	number := header.Number.Uint64()
+	if number == 0 {
+		return errUnknownBlock
+	}
+	// For 0-period chains, refuse to seal empty blocks (no reward but would spin sealing)
+	if t.config.Period == 0 && len(block.Transactions()) == 0 {
+		log.Info("Sealing paused, waiting for transactions")
+		return nil
+	}
+	// Don't hold the signer fields for the entire sealing procedure
+	t.lock.RLock()
+	signer, signFn := t.signer, t.signFn
+	t.lock.RUnlock()
+
+	// Bail out if we're unauthorized to sign a block
+	snap, err := t.snapshot(chain, number-1, header.ParentHash, nil)
+	if err != nil {
+		return err
+	}
+	if _, authorized := snap.Signers[signer]; !authorized {
+		return errUnauthorizedSigner
+	}
+	// If we're amongst the recent signers, wait for the next block
+	for seen, recent := range snap.Recents {
+		if recent == signer {
+			// Signer is among recents, only wait if the current block doesn't shift it out
+			if limit := uint64(len(snap.Signers)/2 + 1); number < limit || seen > number-limit {
+				log.Info("Signed recently, must wait for others")
+				return nil
+			}
+		}
+	}
+	// Sweet, the protocol permits us to sign the block, wait for our time
+	delay := time.Unix(int64(header.Time), 0).Sub(time.Now()) // nolint: gosimple
+	if header.Difficulty.Cmp(diffNoTurn) == 0 {
+		// It's not our turn explicitly to sign, delay it a bit
+		wiggle := time.Duration(len(snap.Signers)/2+1) * wiggleTime
+		delay += time.Duration(rand.Int63n(int64(wiggle)))
+
+		log.Trace("Out-of-turn signing requested", "wiggle", common.PrettyDuration(wiggle))
+	}
+	// Sign all the things!
+	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypeClique, ThemisRLP(header))
+	if err != nil {
+		return err
+	}
+	copy(header.Extra[len(header.Extra)-extraSeal:], sighash)
+	// Wait until sealing is terminated or delay timeout.
+	log.Trace("Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
+	go func() {
+		select {
+		case <-stop:
+			return
+		case <-time.After(delay):
+		}
+
+		select {
+		case results <- block.WithSeal(header):
+		default:
+			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header))
+		}
+	}()
+
 	return nil
 }
 
@@ -341,8 +576,83 @@ func (t *Themis) CalcDifficulty(chain consensus.ChainReader, time uint64, parent
 }
 
 func (t *Themis) snapshot(chain consensus.ChainReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
-	// TODO
-	return nil, nil
+	// Search for a snapshot in memory or on disk for checkpoints
+	var (
+		headers []*types.Header
+		snap    *Snapshot
+	)
+	for snap == nil {
+		// If an in-memory snapshot was found, use that
+		if s, ok := t.recents.Get(hash); ok {
+			snap = s.(*Snapshot)
+			break
+		}
+		// If an on-disk checkpoint snapshot can be found, use that
+		if number%checkpointInterval == 0 {
+			if s, err := loadSnapshot(t.config, t.signatures, t.db, hash); err == nil {
+				log.Trace("Loaded voting snapshot from disk", "number", number, "hash", hash)
+				snap = s
+				break
+			}
+		}
+		// If we're at the genesis, snapshot the initial state. Alternatively if we're
+		// at a checkpoint block without a parent (light client CHT), or we have piled
+		// up more headers than allowed to be reorged (chain reinit from a freezer),
+		// consider the checkpoint trusted and snapshot it.
+		if number == 0 || (number%t.config.Epoch == 0 && (len(headers) > params.FullImmutabilityThreshold || chain.GetHeaderByNumber(number-1) == nil)) {
+			checkpoint := chain.GetHeaderByNumber(number)
+			if checkpoint != nil {
+				hash := checkpoint.Hash()
+
+				signers := make([]common.Address, (len(checkpoint.Extra)-extraVanity-extraSeal)/common.AddressLength)
+				for i := 0; i < len(signers); i++ {
+					copy(signers[i][:], checkpoint.Extra[extraVanity+i*common.AddressLength:])
+				}
+				snap = newSnapshot(t.config, t.signatures, number, hash, signers)
+				if err := snap.store(t.db); err != nil {
+					return nil, err
+				}
+				log.Info("Stored checkpoint snapshot to disk", "number", number, "hash", hash)
+				break
+			}
+		}
+		// No snapshot for this header, gather the header and move backward
+		var header *types.Header
+		if len(parents) > 0 {
+			// If we have explicit parents, pick from there (enforced)
+			header = parents[len(parents)-1]
+			if header.Hash() != hash || header.Number.Uint64() != number {
+				return nil, consensus.ErrUnknownAncestor
+			}
+			parents = parents[:len(parents)-1]
+		} else {
+			// No explicit parents (or no more left), reach out to the database
+			header = chain.GetHeader(hash, number)
+			if header == nil {
+				return nil, consensus.ErrUnknownAncestor
+			}
+		}
+		headers = append(headers, header)
+		number, hash = number-1, header.ParentHash
+	}
+	// Previous snapshot found, apply any pending headers on top of it
+	for i := 0; i < len(headers)/2; i++ {
+		headers[i], headers[len(headers)-1-i] = headers[len(headers)-1-i], headers[i]
+	}
+	snap, err := snap.apply(headers)
+	if err != nil {
+		return nil, err
+	}
+	t.recents.Add(snap.Hash, snap)
+
+	// If we've generated a new checkpoint snapshot, save to disk
+	if snap.Number%checkpointInterval == 0 && len(headers) > 0 {
+		if err = snap.store(t.db); err != nil {
+			return nil, err
+		}
+		log.Trace("Stored voting snapshot to disk", "number", snap.Number, "hash", snap.Hash)
+	}
+	return snap, err
 }
 
 func CalcDifficulty(snap *Snapshot, signer common.Address) *big.Int {

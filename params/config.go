@@ -340,11 +340,7 @@ func (c *EthashConfig) String() string {
 type ThemisConfig struct {
 	Period           uint64                     `json:"period"` // Number of seconds between blocks to enforce
 	Epoch            uint64                     `json:"epoch"`  // Epoch length to reset votes and checkpoint
-	MaxSignerCount   uint64                     `json:"maxSignerCount"`
-	MinVoterBalance  *big.Int                   `json:"minVoterBalance"`  // Min voter balance to valid this vote
 	BlockReward      *big.Int                   `json:"blockReward"`      // produce block reward
-	GenesisTimestamp uint64                     `json:"genesisTimestamp"` // The LoopStartTime of first Block
-	SelfVoteSigners  []common.UnprefixedAddress `json:"signers"`          // Signers vote by themselves to seal the block, make sure the signer accounts are pre-funded
 }
 
 // String implements the stringer interface, returning the consensus engine details.

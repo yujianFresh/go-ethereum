@@ -260,7 +260,7 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 	}
 
 	if chainConfig.Themis != nil {
-		return themis.New(chainConfig, db, nil)
+		return themis.New(chainConfig.Themis, db)
 	}
 	// Otherwise assume proof-of-work
 	switch config.PowMode {

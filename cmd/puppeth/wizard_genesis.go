@@ -106,54 +106,42 @@ func (w *wizard) makeGenesis() {
 			copy(genesis.ExtraData[32+i*common.AddressLength:], signer[:])
 		}
 	case choice == "" || choice == "3":
+		// In the case of themis, configure the consensus parameters
+		genesis.Difficulty = big.NewInt(1)
 		genesis.Config.Themis = &params.ThemisConfig{
-			Period:           10,
-			Epoch:            101,
-			MaxSignerCount:   101,
-			MinVoterBalance:  new(big.Int).Mul(big.NewInt(1000), big.NewInt(1e+18)),
-			GenesisTimestamp: uint64(time.Now().Unix()) + (60 * 5), // Add five minutes
-			SelfVoteSigners:  []common.UnprefixedAddress{},
+			Period:      15,
+			Epoch:       30000,
+			BlockReward: new(big.Int).Mul(big.NewInt(10), big.NewInt(1e+18)),
 		}
 		fmt.Println()
-		fmt.Println("How many seconds should blocks take? (default = 3)")
-		genesis.Config.Themis.Period = uint64(w.readDefaultInt(3))
-
-		fmt.Println()
-		fmt.Println("How many blocks create for one epoch? (default = 201600)")
-		genesis.Config.Themis.Epoch = uint64(w.readDefaultInt(201600))
-
-		fmt.Println()
-		fmt.Println("What is the max number of signers? (default = 21)")
-		genesis.Config.Themis.MaxSignerCount = uint64(w.readDefaultInt(21))
-
-		fmt.Println()
-		fmt.Println("What is the minimize balance for valid voter ? (default = 1000 ETH)")
-		genesis.Config.Themis.MinVoterBalance = new(big.Int).Mul(big.NewInt(int64(w.readDefaultInt(1000))),
-			big.NewInt(1e+18))
-
-		fmt.Println()
-		fmt.Println("How many block reward one block generate ? (default = 10 ETH)")
-		genesis.Config.Themis.BlockReward = new(big.Int).Mul(big.NewInt(int64(w.readDefaultInt(10))),
-			big.NewInt(1e+18))
-
-		fmt.Println()
-		fmt.Println("How many minutes delay to create first block ? (default = 5 minutes)")
-		genesis.Config.Themis.GenesisTimestamp = uint64(time.Now().Unix()) + uint64(w.readDefaultInt(5)*60)
+		fmt.Println("How many seconds should blocks take? (default = 15)")
+		genesis.Config.Themis.Period = uint64(w.readDefaultInt(15))
 
 		// We also need the initial list of signers
 		fmt.Println()
-		fmt.Println("Which accounts are vote by themselves to seal the block?(least one, those accounts will be auto pre-funded)")
+		fmt.Println("Which accounts are allowed to seal? (mandatory at least one)")
+
+		var signers []common.Address
 		for {
 			if address := w.readAddress(); address != nil {
-				genesis.Config.Themis.SelfVoteSigners = append(genesis.Config.Themis.SelfVoteSigners, common.UnprefixedAddress(*address))
-				genesis.Alloc[*address] = core.GenesisAccount{
-					Balance: genesis.Config.Themis.MinVoterBalance, // 2^256 / 128 (allow many pre-funds without balance overflows)
-				}
+				signers = append(signers, *address)
 				continue
 			}
-			if len(genesis.Config.Themis.SelfVoteSigners) > 0 {
+			if len(signers) > 0 {
 				break
 			}
+		}
+		// Sort the signers and embed into the extra-data section
+		for i := 0; i < len(signers); i++ {
+			for j := i + 1; j < len(signers); j++ {
+				if bytes.Compare(signers[i][:], signers[j][:]) > 0 {
+					signers[i], signers[j] = signers[j], signers[i]
+				}
+			}
+		}
+		genesis.ExtraData = make([]byte, 32+len(signers)*common.AddressLength+65)
+		for i, signer := range signers {
+			copy(genesis.ExtraData[32+i*common.AddressLength:], signer[:])
 		}
 
 	default:
