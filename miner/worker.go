@@ -374,12 +374,16 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 		case <-timer.C:
 			// If mining is running resubmit a new work cycle periodically to pull in
 			// higher priced transactions. Disable this overhead for pending blocks.
-			if w.isRunning() && (w.chainConfig.Clique == nil || w.chainConfig.Clique.Period > 0) {
+			if w.isRunning() && (w.chainConfig.Clique != nil && w.chainConfig.Clique.Period > 0) {
+				// if w.isRunning() && (w.chainConfig.Clique == nil || w.chainConfig.Clique.Period > 0) {
 				// Short circuit if no new transaction arrives.
 				if atomic.LoadInt32(&w.newTxs) == 0 {
 					timer.Reset(recommit)
 					continue
 				}
+				commit(true, commitInterruptResubmit)
+			} else if w.isRunning() && (w.chainConfig.Themis != nil && w.chainConfig.Themis.Period > 0) {
+				// start themis consensus
 				commit(true, commitInterruptResubmit)
 			}
 

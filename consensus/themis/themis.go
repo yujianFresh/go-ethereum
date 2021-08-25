@@ -190,6 +190,16 @@ func New(
 	}
 }
 
+// Authorize injects a private key into the consensus engine to mint new blocks
+// with.
+func (t *Themis) Authorize(signer common.Address, signFn SignerFn) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	t.signer = signer
+	t.signFn = signFn
+}
+
 // change block reward by replace this method
 func accumulateRewards(config *params.ThemisConfig, state *state.StateDB, header *types.Header) error {
 	blockReward := config.BlockReward
