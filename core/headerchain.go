@@ -139,6 +139,7 @@ func (hc *HeaderChain) GetBlockNumber(hash common.Hash) *uint64 {
 // in two scenarios: pure-header mode of operation (light clients), or properly
 // separated header/block phases (non-archive clients).
 func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, err error) {
+	log.Debug("hc WriteHeader start")
 	// Cache some values to prevent constant recalculation
 	var (
 		hash   = header.Hash()
@@ -221,6 +222,7 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 	hc.tdCache.Add(hash, externTd)
 	hc.headerCache.Add(hash, header)
 	hc.numberCache.Add(hash, number)
+	log.Debug("hc WriteHeader end")
 	return
 }
 
