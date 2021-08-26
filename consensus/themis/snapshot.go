@@ -64,7 +64,7 @@ func newSnapshot(config *params.ThemisConfig, sigcache *lru.ARCCache, number uin
 		SignerList: signers,
 		Tally:    make(map[common.Address]Tally),
 	}
-	log.Info("themis newSnapshot","signers",signers)
+	// log.Info("themis newSnapshot","signers",signers)
 	for _, signer := range signers {
 		snap.Signers[signer] = struct{}{}
 	}
