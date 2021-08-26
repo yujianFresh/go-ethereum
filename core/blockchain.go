@@ -1566,6 +1566,7 @@ func (bc *BlockChain) addFutureBlock(block *types.Block) error {
 // After insertion is done, all accumulated events will be fired.
 func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 	// Sanity check that we have something meaningful to import
+	log.Info("BlockChain InsertChain start")
 	if len(chain) == 0 {
 		return 0, nil
 	}
@@ -1594,6 +1595,7 @@ func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 	bc.wg.Add(1)
 	bc.chainmu.Lock()
 	n, err := bc.insertChain(chain, true)
+	log.Info("BlockChain InsertChain end", "err", err)
 	bc.chainmu.Unlock()
 	bc.wg.Done()
 
@@ -1730,7 +1732,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		// its header and body was already in the database).
 		if err == ErrKnownBlock {
 			logger := log.Debug
-			if bc.chainConfig.Clique == nil {
+			if bc.chainConfig.Clique == nil || bc.chainConfig.Themis == nil{
 				logger = log.Warn
 			}
 			logger("Inserted known block", "number", block.Number(), "hash", block.Hash(),

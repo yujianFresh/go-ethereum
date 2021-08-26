@@ -429,24 +429,24 @@ func (w *worker) mainLoop() {
 	defer w.chainSideSub.Unsubscribe()
 
 	// set the delay equal to period if use alien consensus
-	themisDelay := time.Duration(300) * time.Second
-	if w.chainConfig.Themis != nil && w.chainConfig.Themis.Period > 0 {
-		themisDelay = time.Duration(w.chainConfig.Themis.Period) * time.Second
-	}
-	timer := time.NewTicker(themisDelay)
+	//themisDelay := time.Duration(300) * time.Second
+	//if w.chainConfig.Themis != nil && w.chainConfig.Themis.Period > 0 {
+	//	themisDelay = time.Duration(w.chainConfig.Themis.Period) * time.Second
+	//}
+	//timer := time.NewTicker(themisDelay)
 
 	for {
 		select {
 		case req := <-w.newWorkCh:
-			if w.chainConfig.Themis == nil {
+			//if w.chainConfig.Themis == nil {
 				w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
-			}
-		case <-timer.C:
-			//	// try to seal block in each period, even no new block received in dpos
-			if w.chainConfig.Themis != nil && w.chainConfig.Themis.Period > 0 {
-				log.Info("worker miner start")
-				w.commitNewWork(nil, false, time.Now().Unix())
-			}
+			//}
+		//case <-timer.C:
+		//	//	// try to seal block in each period, even no new block received in dpos
+		//	if w.chainConfig.Themis != nil && w.chainConfig.Themis.Period > 0 {
+		//		log.Info("worker miner start")
+		//		w.commitNewWork(nil, false, time.Now().Unix())
+		//	}
 
 		case ev := <-w.chainSideCh:
 			// Short circuit for duplicate side blocks
