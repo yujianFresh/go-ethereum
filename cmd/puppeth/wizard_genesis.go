@@ -144,6 +144,7 @@ func (w *wizard) makeGenesis() {
 			copy(genesis.ExtraData[32+i*common.AddressLength:], signer[:])
 		}
 
+		genesis.Config.Themis.SignerList = signers
 	default:
 		log.Crit("Invalid consensus engine choice", "choice", choice)
 	}

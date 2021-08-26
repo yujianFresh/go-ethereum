@@ -117,6 +117,8 @@ var (
 	// errRecentlySigned is returned if a header is signed by an authorized entity
 	// that already signed a header recently, thus is temporarily not allowed to.
 	errRecentlySigned = errors.New("recently signed")
+
+	errMinerNotExist = errors.New("miner not in local")
 )
 
 // SignerFn is a signer callback function to request a header to be signed by a
@@ -158,12 +160,18 @@ type Themis struct {
 
 	proposals map[common.Address]bool // Current list of proposals we are pushing
 
-	signer common.Address // Ethereum address of the signing key
-	signFn SignerFn       // Signer function to authorize hashes with
-	lock   sync.RWMutex   // Protects the signer fields
+	// signer common.Address // Ethereum address of the signing key
+	signFns map[common.Address]SignerFn // Signer function to authorize hashes with
+	lock    sync.RWMutex                // Protects the signer fields
 
 	// The fields below are for testing only
 	fakeDiff bool // Skip difficulty verifications
+}
+
+func (t *Themis) getBlockSigner(blockNumber uint64) (common.Address, SignerFn) {
+	idx := int(blockNumber) % len(t.config.SignerList)
+	signer := t.config.SignerList[idx]
+	return signer, t.signFns[signer]
 }
 
 // New creates a Themis consensus engine.
@@ -187,6 +195,7 @@ func New(
 		recents:    recents,
 		signatures: signatures,
 		proposals:  make(map[common.Address]bool),
+		signFns:    make(map[common.Address]SignerFn),
 	}
 }
 
@@ -196,8 +205,9 @@ func (t *Themis) Authorize(signer common.Address, signFn SignerFn) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	t.signer = signer
-	t.signFn = signFn
+	//t.signer = signer
+	//t.signFn = signFn
+	t.signFns[signer] = signFn
 }
 
 // change block reward by replace this method
@@ -251,6 +261,17 @@ func (t *Themis) verifyHeader(chain consensus.ChainReader, header *types.Header,
 	signersBytes := len(header.Extra) - extraVanity - extraSeal
 	if !checkpoint && signersBytes != 0 {
 		return errExtraSigners
+	}
+	signer, err := ecrecover(header, t.signatures)
+	if err != nil {
+		return err
+	}
+	if signer != header.Coinbase {
+		return errUnauthorizedSigner
+	}
+	miner, _ := t.getBlockSigner(number)
+	if miner != signer {
+		return errMinerNotExist
 	}
 	if checkpoint && signersBytes%common.AddressLength != 0 {
 		return errInvalidCheckpointSigners
@@ -333,6 +354,9 @@ func (t *Themis) verifySeal(chain consensus.ChainReader, header *types.Header, p
 	if err != nil {
 		return err
 	}
+	if signer != header.Coinbase {
+		return errUnauthorizedSigner
+	}
 	if _, ok := snap.Signers[signer]; !ok {
 		return errUnauthorizedSigner
 	}
@@ -388,38 +412,43 @@ func (t *Themis) VerifySeal(chain consensus.ChainReader, header *types.Header) e
 
 func (t *Themis) Prepare(chain consensus.ChainReader, header *types.Header) error {
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
-	header.Coinbase = common.Address{}
+	// header.Coinbase = common.Address{}
 	header.Nonce = types.BlockNonce{}
 
 	number := header.Number.Uint64()
+	signer, signFn := t.getBlockSigner(number)
+	if signFn == nil {
+		return errMinerNotExist
+	}
+	header.Coinbase = signer
 	// Assemble the voting snapshot to check which votes make sense
 	snap, err := t.snapshot(chain, number-1, header.ParentHash, nil)
 	if err != nil {
 		return err
 	}
-	if number%t.config.Epoch != 0 {
-		t.lock.RLock()
-
-		// Gather all the proposals that make sense voting on
-		addresses := make([]common.Address, 0, len(t.proposals))
-		for address, authorize := range t.proposals {
-			if snap.validVote(address, authorize) {
-				addresses = append(addresses, address)
-			}
-		}
-		// If there's pending proposals, cast a vote on them
-		if len(addresses) > 0 {
-			header.Coinbase = addresses[rand.Intn(len(addresses))]
-			if t.proposals[header.Coinbase] {
-				copy(header.Nonce[:], nonceAuthVote)
-			} else {
-				copy(header.Nonce[:], nonceDropVote)
-			}
-		}
-		t.lock.RUnlock()
-	}
+	//if number%t.config.Epoch != 0 {
+	//	t.lock.RLock()
+	//
+	//	// Gather all the proposals that make sense voting on
+	//	addresses := make([]common.Address, 0, len(t.proposals))
+	//	for address, authorize := range t.proposals {
+	//		if snap.validVote(address, authorize) {
+	//			addresses = append(addresses, address)
+	//		}
+	//	}
+	//	// If there's pending proposals, cast a vote on them
+	//	if len(addresses) > 0 {
+	//		header.Coinbase = addresses[rand.Intn(len(addresses))]
+	//		if t.proposals[header.Coinbase] {
+	//			copy(header.Nonce[:], nonceAuthVote)
+	//		} else {
+	//			copy(header.Nonce[:], nonceDropVote)
+	//		}
+	//	}
+	//	t.lock.RUnlock()
+	//}
 	// Set the correct difficulty
-	header.Difficulty = CalcDifficulty(snap, t.signer)
+	header.Difficulty = CalcDifficulty(snap, signer)
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < extraVanity {
@@ -488,27 +517,36 @@ func (t *Themis) Seal(chain consensus.ChainReader, block *types.Block, results c
 	}
 	// Don't hold the signer fields for the entire sealing procedure
 	t.lock.RLock()
-	signer, signFn := t.signer, t.signFn
+	signer, signFn := t.getBlockSigner(number)
 	t.lock.RUnlock()
+
+	if signFn == nil {
+		return errMinerNotExist
+	}
 
 	// Bail out if we're unauthorized to sign a block
 	snap, err := t.snapshot(chain, number-1, header.ParentHash, nil)
 	if err != nil {
 		return err
 	}
+	if len(snap.Signers) > 1 {
+		idx := int(number) % len(snap.Signers)
+		signer = snap.SignerList[idx]
+		log.Info("themis Seal decide", "number", number, "idx", idx, "signer", signer)
+	}
 	if _, authorized := snap.Signers[signer]; !authorized {
 		return errUnauthorizedSigner
 	}
 	// If we're amongst the recent signers, wait for the next block
-	for seen, recent := range snap.Recents {
-		if recent == signer {
-			// Signer is among recents, only wait if the current block doesn't shift it out
-			if limit := uint64(len(snap.Signers)/2 + 1); number < limit || seen > number-limit {
-				log.Info("Signed recently, must wait for others")
-				return nil
-			}
-		}
-	}
+	//for seen, recent := range snap.Recents {
+	//	if recent == signer {
+	//		// Signer is among recents, only wait if the current block doesn't shift it out
+	//		if limit := uint64(len(snap.Signers)/2 + 1); number < limit || seen > number-limit {
+	//			log.Info("Signed recently, must wait for others", "limit", limit, "signerLength", len(snap.Signers), "number", number, "seen", seen)
+	//			return nil
+	//		}
+	//	}
+	//}
 	// Sweet, the protocol permits us to sign the block, wait for our time
 	delay := time.Unix(int64(header.Time), 0).Sub(time.Now()) // nolint: gosimple
 	if header.Difficulty.Cmp(diffNoTurn) == 0 {
@@ -583,7 +621,8 @@ func (t *Themis) CalcDifficulty(chain consensus.ChainReader, time uint64, parent
 	if err != nil {
 		return nil
 	}
-	return CalcDifficulty(snap, t.signer)
+	signer, _ := t.getBlockSigner(parent.Number.Uint64() + 1)
+	return CalcDifficulty(snap, signer)
 }
 
 func (t *Themis) snapshot(chain consensus.ChainReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {

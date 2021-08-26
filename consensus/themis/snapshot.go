@@ -37,6 +37,7 @@ type Snapshot struct {
 	Number  uint64                      `json:"number"`  // Block number where the snapshot was created
 	Hash    common.Hash                 `json:"hash"`    // Block hash where the snapshot was created
 	Signers map[common.Address]struct{} `json:"signers"` // Set of authorized signers at this moment
+	SignerList []common.Address `json:"signer_list"`
 	Recents map[uint64]common.Address   `json:"recents"` // Set of recent signers for spam protections
 	Votes   []*Vote                     `json:"votes"`   // List of votes cast in chronological order
 	Tally   map[common.Address]Tally    `json:"tally"`   // Current vote tally to avoid recalculating
@@ -60,8 +61,10 @@ func newSnapshot(config *params.ThemisConfig, sigcache *lru.ARCCache, number uin
 		Hash:     hash,
 		Signers:  make(map[common.Address]struct{}),
 		Recents:  make(map[uint64]common.Address),
+		SignerList: signers,
 		Tally:    make(map[common.Address]Tally),
 	}
+	log.Info("themis newSnapshot","signers",signers)
 	for _, signer := range signers {
 		snap.Signers[signer] = struct{}{}
 	}
@@ -102,6 +105,7 @@ func (s *Snapshot) copy() *Snapshot {
 		Hash:     s.Hash,
 		Signers:  make(map[common.Address]struct{}),
 		Recents:  make(map[uint64]common.Address),
+		SignerList: s.SignerList,
 		Votes:    make([]*Vote, len(s.Votes)),
 		Tally:    make(map[common.Address]Tally),
 	}
@@ -186,7 +190,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		start  = time.Now()
 		logged = time.Now()
 	)
-	for i, header := range headers {
+	for _, header := range headers {
 		// Remove any votes on checkpoint blocks
 		number := header.Number.Uint64()
 		if number%s.config.Epoch == 0 {
@@ -213,16 +217,16 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		snap.Recents[number] = signer
 
 		// Header authorized, discard any previous votes from the signer
-		for i, vote := range snap.Votes {
-			if vote.Signer == signer && vote.Address == header.Coinbase {
-				// Uncast the vote from the cached tally
-				snap.uncast(vote.Address, vote.Authorize)
-
-				// Uncast the vote from the chronological list
-				snap.Votes = append(snap.Votes[:i], snap.Votes[i+1:]...)
-				break // only one vote allowed
-			}
-		}
+		//for i, vote := range snap.Votes {
+		//	if vote.Signer == signer && vote.Address == header.Coinbase {
+		//		// Uncast the vote from the cached tally
+		//		snap.uncast(vote.Address, vote.Authorize)
+		//
+		//		// Uncast the vote from the chronological list
+		//		snap.Votes = append(snap.Votes[:i], snap.Votes[i+1:]...)
+		//		break // only one vote allowed
+		//	}
+		//}
 		// Tally up the new vote from the signer
 		var authorize bool
 		switch {
@@ -242,44 +246,45 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 			})
 		}
 		// If the vote passed, update the list of signers
-		if tally := snap.Tally[header.Coinbase]; tally.Votes > len(snap.Signers)/2 {
-			if tally.Authorize {
-				snap.Signers[header.Coinbase] = struct{}{}
-			} else {
-				delete(snap.Signers, header.Coinbase)
-
-				// Signer list shrunk, delete any leftover recent caches
-				if limit := uint64(len(snap.Signers)/2 + 1); number >= limit {
-					delete(snap.Recents, number-limit)
-				}
-				// Discard any previous votes the deauthorized signer cast
-				for i := 0; i < len(snap.Votes); i++ {
-					if snap.Votes[i].Signer == header.Coinbase {
-						// Uncast the vote from the cached tally
-						snap.uncast(snap.Votes[i].Address, snap.Votes[i].Authorize)
-
-						// Uncast the vote from the chronological list
-						snap.Votes = append(snap.Votes[:i], snap.Votes[i+1:]...)
-
-						i--
-					}
-				}
+		//if tally := snap.Tally[header.Coinbase]; tally.Votes > len(snap.Signers)/2 {
+		//	if tally.Authorize {
+		//		snap.Signers[header.Coinbase] = struct{}{}
+		//	} else {
+		//		delete(snap.Signers, header.Coinbase)
+		//
+		//		// Signer list shrunk, delete any leftover recent caches
+		//		if limit := uint64(len(snap.Signers)/2 + 1); number >= limit {
+		//			delete(snap.Recents, number-limit)
+		//		}
+		//		// Discard any previous votes the deauthorized signer cast
+		//		for i := 0; i < len(snap.Votes); i++ {
+		//			if snap.Votes[i].Signer == header.Coinbase {
+		//				// Uncast the vote from the cached tally
+		//				snap.uncast(snap.Votes[i].Address, snap.Votes[i].Authorize)
+		//
+		//				// Uncast the vote from the chronological list
+		//				snap.Votes = append(snap.Votes[:i], snap.Votes[i+1:]...)
+		//
+		//				i--
+		//			}
+		//		}
+		//	}
+		// Discard any previous votes around the just changed account
+		for i := 0; i < len(snap.Votes); i++ {
+			if snap.Votes[i].Address == header.Coinbase {
+				snap.Votes = append(snap.Votes[:i], snap.Votes[i+1:]...)
+				i--
 			}
-			// Discard any previous votes around the just changed account
-			for i := 0; i < len(snap.Votes); i++ {
-				if snap.Votes[i].Address == header.Coinbase {
-					snap.Votes = append(snap.Votes[:i], snap.Votes[i+1:]...)
-					i--
-				}
-			}
-			delete(snap.Tally, header.Coinbase)
 		}
+		delete(snap.Tally, header.Coinbase)
+
 		// If we're taking too much time (ecrecover), notify the user once a while
 		if time.Since(logged) > 8*time.Second {
-			log.Info("Reconstructing voting history", "processed", i, "total", len(headers), "elapsed", common.PrettyDuration(time.Since(start)))
+			log.Info("Reconstructing voting history", "total", len(headers), "elapsed", common.PrettyDuration(time.Since(start)))
 			logged = time.Now()
 		}
 	}
+
 	if time.Since(start) > 8*time.Second {
 		log.Info("Reconstructed voting history", "processed", len(headers), "elapsed", common.PrettyDuration(time.Since(start)))
 	}
@@ -305,5 +310,6 @@ func (s *Snapshot) inturn(number uint64, signer common.Address) bool {
 	for offset < len(signers) && signers[offset] != signer {
 		offset++
 	}
+	// log.Info("themis inturn", "number", number, "len signers", len(signers))
 	return (number % uint64(len(signers))) == uint64(offset)
 }

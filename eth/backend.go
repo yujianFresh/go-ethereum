@@ -487,12 +487,19 @@ func (s *Ethereum) StartMining(threads int) error {
 			}
 			clique.Authorize(eb, wallet.SignData)
 		} else if the, ok := s.engine.(*themis.Themis); ok {
-			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
-			if wallet == nil || err != nil {
-				log.Error("Etherbase account unavailable locally", "err", err)
-				return fmt.Errorf("signer missing: %v", err)
+			//wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+			//if wallet == nil || err != nil {
+			//	log.Error("Etherbase account unavailable locally", "err", err)
+			//	return fmt.Errorf("signer missing: %v", err)
+			//}
+			//the.Authorize(eb, wallet.SignData)
+			for _ ,ad := range  s.blockchain.Config().Themis.SignerList {
+				wallet, err := s.accountManager.Find(accounts.Account{Address: ad})
+				if wallet == nil || err != nil {
+					continue
+				}
+				the.Authorize(ad,wallet.SignData)
 			}
-			the.Authorize(eb, wallet.SignData)
 		}
 		// If mining is started, we can disable the transaction rejection mechanism
 		// introduced to speed sync times.
