@@ -295,8 +295,10 @@ func InspectDatabase(db ethdb.Database) error {
 		case bytes.HasPrefix(key, bloomBitsPrefix) && len(key) == (len(bloomBitsPrefix)+10+common.HashLength):
 			bloomBitsSize += size
 		case bytes.HasPrefix(key, []byte("clique-")) && len(key) == 7+common.HashLength:
+			log.Debug("enter cliqueSnapsSize")
 			cliqueSnapsSize += size
 		case bytes.HasPrefix(key, []byte("themis-")) && len(key) == 7+common.HashLength:
+			log.Debug("enter themisSnapSize")
 			themisSnapSize += size
 		case bytes.HasPrefix(key, []byte("cht-")) && len(key) == 4+common.HashLength:
 			chtTrieNodes += size

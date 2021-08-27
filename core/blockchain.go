@@ -1050,6 +1050,7 @@ type numberHash struct {
 func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain []types.Receipts, ancientLimit uint64) (int, error) {
 	// We don't require the chainMu here since we want to maximize the
 	// concurrency of header insertion and receipt insertion.
+	log.Info("InsertReceiptChain start")
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
@@ -1347,7 +1348,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 		context = append(context, []interface{}{"ignored", stats.ignored}...)
 	}
 	log.Info("Imported new block receipts", context...)
-
+	log.Info("InsertReceiptChain end")
 	return 0, nil
 }
 
@@ -1433,8 +1434,10 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	if err := blockBatch.Write(); err != nil {
 		log.Crit("Failed to write block into disk", "err", err)
 	}
+	log.Info("writeBlockWithState block success")
 	// Commit all cached state changes into underlying memory database.
 	root, err := state.Commit(bc.chainConfig.IsEIP158(block.Number()))
+	log.Info("writeBlockWithState commit state","err",err,"root",root)
 	if err != nil {
 		return NonStatTy, err
 	}
@@ -1543,6 +1546,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	} else {
 		bc.chainSideFeed.Send(ChainSideEvent{Block: block})
 	}
+	log.Info("writeBlockWithState all success")
 	return status, nil
 }
 
