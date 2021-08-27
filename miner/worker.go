@@ -19,6 +19,8 @@ package miner
 import (
 	"bytes"
 	"errors"
+	"github.com/ethereum/go-ethereum/consensus/themis"
+	"github.com/ethereum/go-ethereum/metrics"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -54,7 +56,7 @@ const (
 	resubmitAdjustChanSize = 10
 
 	// miningLogAtDepth is the number of confirmations before logging successful mining.
-	miningLogAtDepth = 7
+	miningLogAtDepth = 15
 
 	// minRecommitInterval is the minimal time interval to recreate the mining block with
 	// any newly arrived transactions.
@@ -99,6 +101,10 @@ type task struct {
 	block     *types.Block
 	createdAt time.Time
 }
+
+var (
+	commitTxsTimer = metrics.NewRegisteredTimer("worker/committxs", nil)
+)
 
 const (
 	commitInterruptNone int32 = iota
@@ -367,23 +373,31 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 			commit(false, commitInterruptNewHead)
 
 		case head := <-w.chainHeadCh:
+			if !w.isRunning() {
+				continue
+			}
 			clearPending(head.Block.NumberU64())
 			timestamp = time.Now().Unix()
+			// miner not in local
+			if t, ok := w.engine.(*themis.Themis); ok {
+				_, signerFn := t.GetBlockSigner(head.Block.NumberU64())
+				if signerFn == nil {
+					continue
+				}
+			}
 			commit(false, commitInterruptNewHead)
 
 		case <-timer.C:
 			// If mining is running resubmit a new work cycle periodically to pull in
 			// higher priced transactions. Disable this overhead for pending blocks.
-			if w.isRunning() && (w.chainConfig.Clique != nil && w.chainConfig.Clique.Period > 0) {
+			if w.isRunning() && ((w.chainConfig.Clique != nil && w.chainConfig.Clique.Period > 0) ||
+				(w.chainConfig.Themis != nil && w.chainConfig.Themis.Period > 0)) {
 				// if w.isRunning() && (w.chainConfig.Clique == nil || w.chainConfig.Clique.Period > 0) {
 				// Short circuit if no new transaction arrives.
 				if atomic.LoadInt32(&w.newTxs) == 0 {
 					timer.Reset(recommit)
 					continue
 				}
-				commit(true, commitInterruptResubmit)
-			} else if w.isRunning() && (w.chainConfig.Themis != nil && w.chainConfig.Themis.Period > 0) {
-				// start themis consensus
 				commit(true, commitInterruptResubmit)
 			}
 
@@ -449,6 +463,10 @@ func (w *worker) mainLoop() {
 		//	}
 
 		case ev := <-w.chainSideCh:
+			// Short circuit for duplicate side blocks
+			if _, ok := w.engine.(*themis.Themis); ok {
+				continue
+			}
 			// Short circuit for duplicate side blocks
 			if _, exist := w.localUncles[ev.Block.Hash()]; exist {
 				continue
@@ -519,7 +537,8 @@ func (w *worker) mainLoop() {
 				// Special case, if the consensus engine is 0 period clique(dev mode),
 				// submit mining work here since all empty submission will be rejected
 				// by clique. Of course the advance sealing(empty submission) is disabled.
-				if w.chainConfig.Clique != nil && w.chainConfig.Clique.Period == 0 {
+				if (w.chainConfig.Clique != nil && w.chainConfig.Clique.Period == 0) ||
+					(w.chainConfig.Themis != nil && w.chainConfig.Themis.Period == 0) {
 					w.commitNewWork(nil, true, time.Now().Unix())
 				}
 			}
@@ -966,27 +985,33 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		w.updateSnapshot()
 		return
 	}
-	// Split the pending transactions into locals and remotes
-	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-	for _, account := range w.eth.TxPool().Locals() {
-		if txs := remoteTxs[account]; len(txs) > 0 {
-			delete(remoteTxs, account)
-			localTxs[account] = txs
+	// Short circuit if there is no available pending transactions
+	if len(pending) != 0 {
+		start := time.Now()
+		// Split the pending transactions into locals and remotes
+		localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
+		for _, account := range w.eth.TxPool().Locals() {
+			if txs := remoteTxs[account]; len(txs) > 0 {
+				delete(remoteTxs, account)
+				localTxs[account] = txs
+			}
 		}
-	}
-	if len(localTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
-		if w.commitTransactions(txs, w.coinbase, interrupt) {
-			return
+		if len(localTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
+			if w.commitTransactions(txs, w.coinbase, interrupt) {
+				return
+			}
 		}
-	}
-	if len(remoteTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
-		if w.commitTransactions(txs, w.coinbase, interrupt) {
-			return
+		if len(remoteTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
+			if w.commitTransactions(txs, w.coinbase, interrupt) {
+				return
+			}
 		}
+		commitTxsTimer.UpdateSince(start)
+		log.Info("Gas pool", "height", header.Number.String(), "pool", w.current.gasPool.String())
 	}
-	w.commit(uncles, w.fullTaskHook, true, tstart)
+	w.commit(uncles, w.fullTaskHook, false, tstart)
 }
 
 // commit runs any post-transaction state modifications, assembles the final block
@@ -999,7 +1024,7 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		*receipts[i] = *l
 	}
 	s := w.current.state.Copy()
-	block, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, w.current.receipts)
+	block, err := w.engine.FinalizeAndAssemble(w.chain, types.CopyHeader(w.current.header), s, w.current.txs, uncles, w.current.receipts)
 	if err != nil {
 		return err
 	}

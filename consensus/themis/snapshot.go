@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+var(
+	THEMIS_PREFIX = "themis-"
+)
+
 // Vote represents a single vote that an authorized signer made to modify the
 // list of authorizations.
 type Vote struct {
@@ -73,7 +77,7 @@ func newSnapshot(config *params.ThemisConfig, sigcache *lru.ARCCache, number uin
 
 // loadSnapshot loads an existing snapshot from the database.
 func loadSnapshot(config *params.ThemisConfig, sigcache *lru.ARCCache, db ethdb.Database, hash common.Hash) (*Snapshot, error) {
-	blob, err := db.Get(append([]byte("themis-"), hash[:]...))
+	blob, err := db.Get(append([]byte(THEMIS_PREFIX), hash[:]...))
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +97,7 @@ func (s *Snapshot) store(db ethdb.Database) error {
 	if err != nil {
 		return err
 	}
-	return db.Put(append([]byte("themis-"), s.Hash[:]...), blob)
+	return db.Put(append([]byte(THEMIS_PREFIX), s.Hash[:]...), blob)
 }
 
 // copy creates a deep copy of the snapshot, though not the individual votes.

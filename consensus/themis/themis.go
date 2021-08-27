@@ -168,7 +168,7 @@ type Themis struct {
 	fakeDiff bool // Skip difficulty verifications
 }
 
-func (t *Themis) getBlockSigner(blockNumber uint64) (common.Address, SignerFn) {
+func (t *Themis) GetBlockSigner(blockNumber uint64) (common.Address, SignerFn) {
 	idx := int(blockNumber) % len(t.config.SignerList)
 	signer := t.config.SignerList[idx]
 	return signer, t.signFns[signer]
@@ -269,7 +269,7 @@ func (t *Themis) verifyHeader(chain consensus.ChainReader, header *types.Header,
 	if signer != header.Coinbase {
 		return errUnauthorizedSigner
 	}
-	miner, _ := t.getBlockSigner(number)
+	miner, _ := t.GetBlockSigner(number)
 	if miner != signer {
 		return errMinerNotExist
 	}
@@ -416,7 +416,7 @@ func (t *Themis) Prepare(chain consensus.ChainReader, header *types.Header) erro
 	header.Nonce = types.BlockNonce{}
 
 	number := header.Number.Uint64()
-	signer, signFn := t.getBlockSigner(number)
+	signer, signFn := t.GetBlockSigner(number)
 	if signFn == nil {
 		return errMinerNotExist
 	}
@@ -517,7 +517,7 @@ func (t *Themis) Seal(chain consensus.ChainReader, block *types.Block, results c
 	}
 	// Don't hold the signer fields for the entire sealing procedure
 	t.lock.RLock()
-	signer, signFn := t.getBlockSigner(number)
+	signer, signFn := t.GetBlockSigner(number)
 	t.lock.RUnlock()
 
 	if signFn == nil {
@@ -557,7 +557,7 @@ func (t *Themis) Seal(chain consensus.ChainReader, block *types.Block, results c
 		log.Trace("Out-of-turn signing requested", "wiggle", common.PrettyDuration(wiggle))
 	}
 	// Sign all the things!
-	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypeClique, ThemisRLP(header))
+	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypeThemis, ThemisRLP(header))
 	if err != nil {
 		return err
 	}
@@ -621,7 +621,7 @@ func (t *Themis) CalcDifficulty(chain consensus.ChainReader, time uint64, parent
 	if err != nil {
 		return nil
 	}
-	signer, _ := t.getBlockSigner(parent.Number.Uint64() + 1)
+	signer, _ := t.GetBlockSigner(parent.Number.Uint64() + 1)
 	return CalcDifficulty(snap, signer)
 }
 
