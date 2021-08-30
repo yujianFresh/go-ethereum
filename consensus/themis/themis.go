@@ -171,6 +171,7 @@ type Themis struct {
 func (t *Themis) GetBlockSigner(blockNumber uint64) (common.Address, SignerFn) {
 	idx := int(blockNumber) % len(t.config.SignerList)
 	signer := t.config.SignerList[idx]
+	log.Info("themis GetBlockSigner","number",blockNumber,"signer",signer.Hex())
 	return signer, t.signFns[signer]
 }
 
@@ -238,6 +239,10 @@ func (t *Themis) verifyHeader(chain consensus.ChainReader, header *types.Header,
 	// Don't waste time checking blocks from the future
 	if header.Time > uint64(time.Now().Unix()) {
 		return consensus.ErrFutureBlock
+	}
+
+	if header.Difficulty.Uint64() != 2 {
+		return errors.New("unknown difficult")
 	}
 	// Checkpoint blocks need to enforce zero beneficiary
 	checkpoint := (number % t.config.Epoch) == 0
