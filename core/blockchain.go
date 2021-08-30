@@ -1443,6 +1443,10 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	}
 	triedb := bc.stateCache.TrieDB()
 
+	// always flush,  we're running an archive node, always flush
+	//if err := triedb.Commit(root, false, nil); err != nil {
+	//	return NonStatTy, err
+	//}
 	// If we're running an archive node, always flush
 	if bc.cacheConfig.TrieDirtyDisabled {
 		if err := triedb.Commit(root, false, nil); err != nil {

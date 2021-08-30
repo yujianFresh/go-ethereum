@@ -213,6 +213,7 @@ func (t *Themis) Authorize(signer common.Address, signFn SignerFn) {
 // change block reward by replace this method
 func accumulateRewards(config *params.ThemisConfig, state *state.StateDB, header *types.Header) error {
 	blockReward := config.BlockReward
+	// blockReward := common.Big0
 	// Accumulate the rewards for the miner and any included uncles
 	reward := new(big.Int).Set(blockReward)
 	state.AddBalance(header.Coinbase, reward)
@@ -221,7 +222,7 @@ func accumulateRewards(config *params.ThemisConfig, state *state.StateDB, header
 }
 
 func (t *Themis) Author(header *types.Header) (common.Address, error) {
-	return ecrecover(header, t.signatures)
+	return header.Coinbase, nil
 }
 
 func (t *Themis) VerifyHeader(chain consensus.ChainReader, header *types.Header, seal bool) error {

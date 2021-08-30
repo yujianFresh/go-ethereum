@@ -175,6 +175,7 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 			reorg = mrand.Float64() < 0.5
 		}
 	}
+	log.Debug("hc WriteHeader", "reorg", reorg)
 	if reorg {
 		// If the header can be added into canonical chain, adjust the
 		// header chain markers(canonical indexes and head header flag).

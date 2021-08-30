@@ -789,6 +789,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	if metrics.EnabledExpensive {
 		defer func(start time.Time) { s.AccountHashes += time.Since(start) }(time.Now())
 	}
+	log.Debug("StateDB IntermediateRoot","root",s.trie.Hash())
 	return s.trie.Hash()
 }
 
@@ -811,6 +812,7 @@ func (s *StateDB) clearJournalAndRefund() {
 // Commit writes the state to the underlying in-memory trie database.
 func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 	if s.dbErr != nil {
+		log.Error("StateDB Commit error","error",s.dbErr)
 		return common.Hash{}, fmt.Errorf("commit aborted due to earlier error: %v", s.dbErr)
 	}
 	// Finalize any pending changes and merge everything into the tries
@@ -862,6 +864,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 		if metrics.EnabledExpensive {
 			defer func(start time.Time) { s.SnapshotCommits += time.Since(start) }(time.Now())
 		}
+
 		// Only update if there's a state transition (skip empty Clique blocks)
 		if parent := s.snap.Root(); parent != root {
 			if err := s.snaps.Update(root, parent, s.snapDestructs, s.snapAccounts, s.snapStorage); err != nil {
@@ -870,7 +873,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 			if err := s.snaps.Cap(root, 127); err != nil { // Persistent layer is 128th, the last available trie
 				log.Warn("Failed to cap snapshot tree", "root", root, "layers", 127, "err", err)
 			}
-		}
+		 }
 		s.snap, s.snapDestructs, s.snapAccounts, s.snapStorage = nil, nil, nil, nil
 	}
 	return root, err

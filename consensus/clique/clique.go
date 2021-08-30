@@ -490,7 +490,7 @@ func (c *Clique) verifySeal(chain consensus.ChainReader, header *types.Header, p
 func (c *Clique) Prepare(chain consensus.ChainReader, header *types.Header) error {
 	// If the block isn't a checkpoint, cast a random vote (good enough for now)
 	header.Coinbase = common.Address{}
-	header.Nonce = types.BlockNonce{}
+	header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 
 	number := header.Number.Uint64()
 	// Assemble the voting snapshot to check which votes make sense
@@ -550,10 +550,22 @@ func (c *Clique) Prepare(chain consensus.ChainReader, header *types.Header) erro
 	return nil
 }
 
+
+func accumulateRewards(state *state.StateDB, header *types.Header) error {
+	blockReward := big.NewInt(5e+18)
+	// blockReward := common.Big0
+	// Accumulate the rewards for the miner and any included uncles
+	reward := new(big.Int).Set(blockReward)
+	state.AddBalance(header.Coinbase, reward)
+	log.Info("themis accumulateRewards", "coinbase", header.Coinbase, "blockReward", reward.Uint64())
+	return nil
+}
+
 // Finalize implements consensus.Engine, ensuring no uncles are set, nor block
 // rewards given.
 func (c *Clique) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
 	// No block rewards in PoA, so the state remains as is and uncles are dropped
+	//_ = accumulateRewards(state,header)
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 	header.UncleHash = types.CalcUncleHash(nil)
 }
@@ -562,6 +574,7 @@ func (c *Clique) Finalize(chain consensus.ChainReader, header *types.Header, sta
 // nor block rewards given, and returns the final block.
 func (c *Clique) FinalizeAndAssemble(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
 	// No block rewards in PoA, so the state remains as is and uncles are dropped
+	//_ = accumulateRewards(state,header)
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 	header.UncleHash = types.CalcUncleHash(nil)
 
