@@ -127,7 +127,7 @@ func ReadHeaderNumber(db ethdb.KeyValueReader, hash common.Hash) *uint64 {
 func WriteHeaderNumber(db ethdb.KeyValueWriter, hash common.Hash, number uint64) {
 	key := headerNumberKey(hash)
 	enc := encodeBlockNumber(number)
-	log.Info("WriteHeaderNumber", "number", number, "hash", hash)
+	log.Debug("WriteHeaderNumber", "number", number, "hash", hash)
 	if err := db.Put(key, enc); err != nil {
 		log.Crit("Failed to store hash to number mapping", "err", err)
 	}
@@ -383,7 +383,7 @@ func ReadCanonicalBodyRLP(db ethdb.Reader, number uint64) rlp.RawValue {
 
 // WriteBodyRLP stores an RLP encoded block body into the database.
 func WriteBodyRLP(db ethdb.KeyValueWriter, hash common.Hash, number uint64, rlp rlp.RawValue) {
-	log.Info("WriteBodyRLP","number",number)
+	log.Debug("WriteBodyRLP","number",number)
 	if err := db.Put(blockBodyKey(number, hash), rlp); err != nil {
 		log.Crit("Failed to store block body", "err", err)
 	}

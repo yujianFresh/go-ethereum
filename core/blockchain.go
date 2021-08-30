@@ -1434,7 +1434,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	if err := blockBatch.Write(); err != nil {
 		log.Crit("Failed to write block into disk", "err", err)
 	}
-	log.Info("writeBlockWithState block success")
+	log.Debug("writeBlockWithState block success")
 	// Commit all cached state changes into underlying memory database.
 	root, err := state.Commit(bc.chainConfig.IsEIP158(block.Number()))
 	log.Info("writeBlockWithState commit state","err",err,"root",root)
