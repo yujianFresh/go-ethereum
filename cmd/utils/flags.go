@@ -1841,7 +1841,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node, readOnly bool) (chain *core.B
 	if config.Clique != nil {
 		engine = clique.New(config.Clique, chainDb)
 	} else if config.Themis != nil {
-		engine = themis.New(config.Themis, chainDb)
+		engine = themis.New(config.Themis, config, chainDb)
 	} else {
 		engine = ethash.NewFaker()
 		if !ctx.GlobalBool(FakePoWFlag.Name) {

@@ -260,7 +260,7 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 	}
 
 	if chainConfig.Themis != nil {
-		return themis.New(chainConfig.Themis, db)
+		return themis.New(chainConfig.Themis, chainConfig, db)
 	}
 	// Otherwise assume proof-of-work
 	switch config.PowMode {
@@ -493,12 +493,12 @@ func (s *Ethereum) StartMining(threads int) error {
 			//	return fmt.Errorf("signer missing: %v", err)
 			//}
 			//the.Authorize(eb, wallet.SignData)
-			for _ ,ad := range  s.blockchain.Config().Themis.SignerList {
+			for _, ad := range s.blockchain.Config().Themis.SignerList {
 				wallet, err := s.accountManager.Find(accounts.Account{Address: ad})
 				if wallet == nil || err != nil {
 					continue
 				}
-				the.Authorize(ad,wallet.SignData)
+				the.Authorize(ad, wallet.SignData)
 			}
 		}
 		// If mining is started, we can disable the transaction rejection mechanism

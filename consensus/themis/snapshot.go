@@ -9,11 +9,12 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	lru "github.com/hashicorp/golang-lru"
+	"math/big"
 	"sort"
 	"time"
 )
 
-var(
+var (
 	THEMIS_PREFIX = "themis-"
 )
 
@@ -38,13 +39,13 @@ type Snapshot struct {
 	config   *params.ThemisConfig // Consensus engine parameters to fine tune behavior
 	sigcache *lru.ARCCache        // Cache of recent block signatures to speed up ecrecover
 
-	Number  uint64                      `json:"number"`  // Block number where the snapshot was created
-	Hash    common.Hash                 `json:"hash"`    // Block hash where the snapshot was created
-	Signers map[common.Address]struct{} `json:"signers"` // Set of authorized signers at this moment
-	SignerList []common.Address `json:"signer_list"`
-	Recents map[uint64]common.Address   `json:"recents"` // Set of recent signers for spam protections
-	Votes   []*Vote                     `json:"votes"`   // List of votes cast in chronological order
-	Tally   map[common.Address]Tally    `json:"tally"`   // Current vote tally to avoid recalculating
+	Number     uint64                      `json:"number"`  // Block number where the snapshot was created
+	Hash       common.Hash                 `json:"hash"`    // Block hash where the snapshot was created
+	Signers    map[common.Address]struct{} `json:"signers"` // Set of authorized signers at this moment
+	SignerList []common.Address            `json:"signer_list"`
+	Recents    map[uint64]common.Address   `json:"recents"` // Set of recent signers for spam protections
+	Votes      []*Vote                     `json:"votes"`   // List of votes cast in chronological order
+	Tally      map[common.Address]Tally    `json:"tally"`   // Current vote tally to avoid recalculating
 }
 
 // signersAscending implements the sort interface to allow sorting a list of addresses
@@ -59,14 +60,14 @@ func (s signersAscending) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 // the genesis block.
 func newSnapshot(config *params.ThemisConfig, sigcache *lru.ARCCache, number uint64, hash common.Hash, signers []common.Address) *Snapshot {
 	snap := &Snapshot{
-		config:   config,
-		sigcache: sigcache,
-		Number:   number,
-		Hash:     hash,
-		Signers:  make(map[common.Address]struct{}),
-		Recents:  make(map[uint64]common.Address),
+		config:     config,
+		sigcache:   sigcache,
+		Number:     number,
+		Hash:       hash,
+		Signers:    make(map[common.Address]struct{}),
+		Recents:    make(map[uint64]common.Address),
 		SignerList: signers,
-		Tally:    make(map[common.Address]Tally),
+		Tally:      make(map[common.Address]Tally),
 	}
 	// log.Info("themis newSnapshot","signers",signers)
 	for _, signer := range signers {
@@ -103,15 +104,15 @@ func (s *Snapshot) store(db ethdb.Database) error {
 // copy creates a deep copy of the snapshot, though not the individual votes.
 func (s *Snapshot) copy() *Snapshot {
 	cpy := &Snapshot{
-		config:   s.config,
-		sigcache: s.sigcache,
-		Number:   s.Number,
-		Hash:     s.Hash,
-		Signers:  make(map[common.Address]struct{}),
-		Recents:  make(map[uint64]common.Address),
+		config:     s.config,
+		sigcache:   s.sigcache,
+		Number:     s.Number,
+		Hash:       s.Hash,
+		Signers:    make(map[common.Address]struct{}),
+		Recents:    make(map[uint64]common.Address),
 		SignerList: s.SignerList,
-		Votes:    make([]*Vote, len(s.Votes)),
-		Tally:    make(map[common.Address]Tally),
+		Votes:      make([]*Vote, len(s.Votes)),
+		Tally:      make(map[common.Address]Tally),
 	}
 	for signer := range s.Signers {
 		cpy.Signers[signer] = struct{}{}
@@ -173,7 +174,7 @@ func (s *Snapshot) uncast(address common.Address, authorize bool) bool {
 
 // apply creates a new authorization snapshot by applying the given headers to
 // the original one.
-func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
+func (s *Snapshot) apply(headers []*types.Header, chainId *big.Int) (*Snapshot, error) {
 	// Allow passing in no headers for cleaner code
 	if len(headers) == 0 {
 		return s, nil
@@ -206,7 +207,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 			delete(snap.Recents, number-limit)
 		}
 		// Resolve the authorization key and check against signers
-		signer, err := ecrecover(header, s.sigcache)
+		signer, err := ecrecover(header, s.sigcache, chainId)
 		if err != nil {
 			return nil, err
 		}

@@ -126,7 +126,7 @@ var (
 type SignerFn func(accounts.Account, string, []byte) ([]byte, error)
 
 // ecrecover extracts the Ethereum account address from a signed header.
-func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
+func ecrecover(header *types.Header, sigcache *lru.ARCCache, chainId *big.Int) (common.Address, error) {
 	// If the signature's already cached, return that
 	hash := header.Hash()
 	if address, known := sigcache.Get(hash); known {
@@ -139,7 +139,7 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 	signature := header.Extra[len(header.Extra)-extraSeal:]
 
 	// Recover the public key and the Ethereum address
-	pubkey, err := crypto.Ecrecover(SealHash(header).Bytes(), signature)
+	pubkey, err := crypto.Ecrecover(SealHash(header, chainId).Bytes(), signature)
 	if err != nil {
 		return common.Address{}, err
 	}
@@ -152,8 +152,9 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 
 // Themis is the dpos consensus engine
 type Themis struct {
-	config *params.ThemisConfig // Consensus engine configuration parameters for themis consensus
-	db     ethdb.Database       // Database to store and retrieve snapshot checkpoints
+	config      *params.ThemisConfig // Consensus engine configuration parameters for themis consensus
+	chainConfig *params.ChainConfig
+	db          ethdb.Database // Database to store and retrieve snapshot checkpoints
 
 	recents    *lru.ARCCache // Snapshots for recent block to speed up reorgs
 	signatures *lru.ARCCache // Signatures of recent blocks to speed up mining
@@ -171,13 +172,14 @@ type Themis struct {
 func (t *Themis) GetBlockSigner(blockNumber uint64) (common.Address, SignerFn) {
 	idx := int(blockNumber) % len(t.config.SignerList)
 	signer := t.config.SignerList[idx]
-	log.Info("themis GetBlockSigner","number",blockNumber,"signer",signer.Hex())
+	log.Info("themis GetBlockSigner", "number", blockNumber, "signer", signer.Hex())
 	return signer, t.signFns[signer]
 }
 
 // New creates a Themis consensus engine.
 func New(
 	config *params.ThemisConfig,
+	chainConfig *params.ChainConfig,
 	db ethdb.Database,
 ) *Themis {
 	// Set any missing consensus parameters to their defaults
@@ -191,12 +193,13 @@ func New(
 	signatures, _ := lru.NewARC(inmemorySignatures)
 
 	return &Themis{
-		config:     &conf,
-		db:         db,
-		recents:    recents,
-		signatures: signatures,
-		proposals:  make(map[common.Address]bool),
-		signFns:    make(map[common.Address]SignerFn),
+		config:      &conf,
+		chainConfig: chainConfig,
+		db:          db,
+		recents:     recents,
+		signatures:  signatures,
+		proposals:   make(map[common.Address]bool),
+		signFns:     make(map[common.Address]SignerFn),
 	}
 }
 
@@ -268,7 +271,7 @@ func (t *Themis) verifyHeader(chain consensus.ChainReader, header *types.Header,
 	if !checkpoint && signersBytes != 0 {
 		return errExtraSigners
 	}
-	signer, err := ecrecover(header, t.signatures)
+	signer, err := ecrecover(header, t.signatures, t.chainConfig.ChainID)
 	if err != nil {
 		return err
 	}
@@ -356,7 +359,7 @@ func (t *Themis) verifySeal(chain consensus.ChainReader, header *types.Header, p
 	}
 
 	// Resolve the authorization key and check against signers
-	signer, err := ecrecover(header, t.signatures)
+	signer, err := ecrecover(header, t.signatures, t.chainConfig.ChainID)
 	if err != nil {
 		return err
 	}
@@ -502,9 +505,9 @@ func (t *Themis) FinalizeAndAssemble(chain consensus.ChainReader, header *types.
 	return types.NewBlock(header, txs, nil, receipts), nil
 }
 
-func ThemisRLP(header *types.Header) []byte {
+func ThemisRLP(header *types.Header, chainId *big.Int) []byte {
 	b := new(bytes.Buffer)
-	encodeSigHeader(b, header)
+	encodeSigHeader(b, header, chainId)
 	return b.Bytes()
 }
 
@@ -563,7 +566,7 @@ func (t *Themis) Seal(chain consensus.ChainReader, block *types.Block, results c
 		log.Trace("Out-of-turn signing requested", "wiggle", common.PrettyDuration(wiggle))
 	}
 	// Sign all the things!
-	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypeThemis, ThemisRLP(header))
+	sighash, err := signFn(accounts.Account{Address: signer}, accounts.MimetypeThemis, ThemisRLP(header, t.chainConfig.ChainID))
 	if err != nil {
 		return err
 	}
@@ -580,15 +583,16 @@ func (t *Themis) Seal(chain consensus.ChainReader, block *types.Block, results c
 		select {
 		case results <- block.WithSeal(header):
 		default:
-			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header))
+			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header, t.chainConfig.ChainID))
 		}
 	}()
 
 	return nil
 }
 
-func encodeSigHeader(w io.Writer, header *types.Header) {
+func encodeSigHeader(w io.Writer, header *types.Header, chainId *big.Int) {
 	err := rlp.Encode(w, []interface{}{
+		chainId,
 		header.ParentHash,
 		header.UncleHash,
 		header.Coinbase,
@@ -611,15 +615,15 @@ func encodeSigHeader(w io.Writer, header *types.Header) {
 }
 
 // SealHash returns the hash of a block prior to it being sealed.
-func SealHash(header *types.Header) (hash common.Hash) {
+func SealHash(header *types.Header, chainId *big.Int) (hash common.Hash) {
 	hasher := sha3.NewLegacyKeccak256()
-	encodeSigHeader(hasher, header)
+	encodeSigHeader(hasher, header, chainId)
 	hasher.Sum(hash[:0])
 	return hash
 }
 
 func (t *Themis) SealHash(header *types.Header) common.Hash {
-	return SealHash(header)
+	return SealHash(header, t.chainConfig.ChainID)
 }
 
 func (t *Themis) CalcDifficulty(chain consensus.ChainReader, time uint64, parent *types.Header) *big.Int {
@@ -695,7 +699,7 @@ func (t *Themis) snapshot(chain consensus.ChainReader, number uint64, hash commo
 	for i := 0; i < len(headers)/2; i++ {
 		headers[i], headers[len(headers)-1-i] = headers[len(headers)-1-i], headers[i]
 	}
-	snap, err := snap.apply(headers)
+	snap, err := snap.apply(headers, t.chainConfig.ChainID)
 	if err != nil {
 		return nil, err
 	}

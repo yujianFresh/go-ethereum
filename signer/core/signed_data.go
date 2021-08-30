@@ -285,7 +285,7 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 			header.Extra = newExtra
 		}
 		// Get back the rlp data, encoded by us
-		sighash, themisRlp, err := themisHeaderHashAndRlp(header)
+		sighash, themisRlp, err := themisHeaderHashAndRlp(header, api.chainID)
 		if err != nil {
 			return nil, useEthereumV, err
 		}
@@ -351,13 +351,13 @@ func cliqueHeaderHashAndRlp(header *types.Header) (hash, rlp []byte, err error) 
 	return hash, rlp, err
 }
 
-func themisHeaderHashAndRlp(header *types.Header) (hash, rlp []byte, err error) {
+func themisHeaderHashAndRlp(header *types.Header, chainId *big.Int) (hash, rlp []byte, err error) {
 	if len(header.Extra) < 65 {
 		err = fmt.Errorf("themis header extradata too short, %d < 65", len(header.Extra))
 		return
 	}
-	rlp = themis.ThemisRLP(header)
-	hash = themis.SealHash(header).Bytes()
+	rlp = themis.ThemisRLP(header, chainId)
+	hash = themis.SealHash(header, chainId).Bytes()
 	return hash, rlp, err
 }
 
