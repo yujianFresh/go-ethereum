@@ -117,6 +117,10 @@ func (w *wizard) makeGenesis() {
 		fmt.Println("How many seconds should blocks take? (default = 15)")
 		genesis.Config.Themis.Period = uint64(w.readDefaultInt(15))
 
+		fmt.Println()
+		fmt.Println("How many block reward take? (default = 10 ETH)")
+		genesis.Config.Themis.BlockReward = new(big.Int).Mul(big.NewInt(int64(w.readDefaultInt(10))), big.NewInt(1e+18))
+
 		// We also need the initial list of signers
 		fmt.Println()
 		fmt.Println("Which accounts are allowed to seal? (mandatory at least one)")
@@ -148,6 +152,10 @@ func (w *wizard) makeGenesis() {
 	default:
 		log.Crit("Invalid consensus engine choice", "choice", choice)
 	}
+	fmt.Println()
+	fmt.Println("How amount a account pre-funded? (default = 10000_0000 ETH)")
+	preFundBalance := new(big.Int).Mul(big.NewInt(int64(w.readDefaultInt(10000_0000))), big.NewInt(1e+18))
+
 	// Consensus all set, just ask for initial funds and go
 	fmt.Println()
 	fmt.Println("Which accounts should be pre-funded? (advisable at least one)")
@@ -155,7 +163,7 @@ func (w *wizard) makeGenesis() {
 		// Read the address of the account to fund
 		if address := w.readAddress(); address != nil {
 			genesis.Alloc[*address] = core.GenesisAccount{
-				Balance: new(big.Int).Mul(big.NewInt(10000_0000), big.NewInt(1e+18)), // 2^256 / 128 (allow many pre-funds without balance overflows)
+				Balance: preFundBalance, // 2^256 / 128 (allow many pre-funds without balance overflows)
 			}
 			continue
 		}
