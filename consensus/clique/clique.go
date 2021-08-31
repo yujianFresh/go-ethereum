@@ -557,7 +557,7 @@ func accumulateRewards(state *state.StateDB, header *types.Header) error {
 	// Accumulate the rewards for the miner and any included uncles
 	reward := new(big.Int).Set(blockReward)
 	state.AddBalance(header.Coinbase, reward)
-	log.Info("themis accumulateRewards", "coinbase", header.Coinbase, "blockReward", reward.Uint64())
+	log.Debug("themis accumulateRewards", "coinbase", header.Coinbase, "blockReward", reward.Uint64())
 	return nil
 }
 

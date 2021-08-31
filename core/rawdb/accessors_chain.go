@@ -151,7 +151,7 @@ func ReadHeadHeaderHash(db ethdb.KeyValueReader) common.Hash {
 
 // WriteHeadHeaderHash stores the hash of the current canonical head header.
 func WriteHeadHeaderHash(db ethdb.KeyValueWriter, hash common.Hash) {
-	log.Info("WriteHeadHeaderHash", "hash", hash)
+	log.Debug("WriteHeadHeaderHash", "hash", hash)
 	if err := db.Put(headHeaderKey, hash.Bytes()); err != nil {
 		log.Crit("Failed to store last header's hash", "err", err)
 	}

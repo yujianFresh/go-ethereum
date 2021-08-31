@@ -1437,7 +1437,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	log.Debug("writeBlockWithState block success")
 	// Commit all cached state changes into underlying memory database.
 	root, err := state.Commit(bc.chainConfig.IsEIP158(block.Number()))
-	log.Info("writeBlockWithState commit state","err",err,"root",root)
+	log.Debug("writeBlockWithState commit state","err",err,"root",root)
 	if err != nil {
 		return NonStatTy, err
 	}
@@ -1550,7 +1550,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	} else {
 		bc.chainSideFeed.Send(ChainSideEvent{Block: block})
 	}
-	log.Info("writeBlockWithState all success")
+	log.Debug("writeBlockWithState all success")
 	return status, nil
 }
 
